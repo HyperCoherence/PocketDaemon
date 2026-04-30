@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PocketDaemon</string>
+    <string name="accessibility_desc">PocketDaemon uses accessibility service to capture call audio. This allows the AI agent to hear the caller during active phone calls.</string>
+</resources>

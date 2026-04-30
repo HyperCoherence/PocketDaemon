@@ -1,0 +1,70 @@
+# PocketDaemon
+
+PocketDaemon is an experimental Android-native AI agent that can answer and place
+phone calls, run live voice/chat sessions, use phone tools, keep local memory,
+take notes, schedule tasks, and run extensible skills.
+
+The project is built as a Flutter app with Android/Kotlin services and an
+optional Magisk module that installs the app as a privileged system app. That
+privileged path is what enables call handling, telephony audio, call recording,
+contacts, SMS, location, and assistant-role integration.
+
+## Status
+
+This is research software for rooted Android devices. It is not ready for
+general consumer installation, app-store distribution, or use where missed
+calls, unwanted SMS, location exposure, or recording-law compliance would create
+material risk.
+
+## Features
+
+- AI receptionist for incoming calls
+- Live full-duplex voice conversation
+- Text chat with image input
+- Trusted caller tiers
+- Outbound calls from chat
+- Notes, notifications, recordings, and session history
+- Local memory stored under `/sdcard/PocketDaemon/`
+- Scheduled tasks
+- Skills loaded from Markdown files
+- Optional Google Search grounding through Gemini
+
+See [FEATURES.md](FEATURES.md) for the full current feature list.
+
+## Requirements
+
+- Rooted Android device with Magisk
+- Flutter SDK
+- Android SDK / platform tools
+- A Gemini API key
+- A device and jurisdiction where call handling/recording behavior is lawful
+
+## Build
+
+```powershell
+flutter pub get
+flutter build apk --release
+powershell -File build_magisk.ps1
+```
+
+The Magisk zip is generated as `PocketDaemon-magisk.zip`. Do not commit generated
+APKs, zips, extracted firmware, local configs, recordings, notes, or skills.
+
+## Configuration
+
+The app stores runtime data under `/sdcard/PocketDaemon/`. For provisioning, copy
+`pocketdaemon_config.example.json` to `pocketdaemon_config.json`, fill in local
+values, and place it in `/sdcard/Download/` before launching the app. The app
+imports supported keys and deletes the sideload file after a successful merge.
+
+Never commit real API keys or personal config exports.
+
+## Security And Privacy
+
+This app can access sensitive phone capabilities when installed as a privileged
+system app. Review [SECURITY.md](SECURITY.md), [PRIVACY.md](PRIVACY.md), and
+[docs/threat-model.md](docs/threat-model.md) before publishing or installing.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

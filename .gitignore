@@ -1,0 +1,57 @@
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Dart / Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+coverage/
+**/doc/api/
+**/ios/Flutter/.last_build_id
+
+# Android / Gradle
+android/.gradle/
+android/.kotlin/
+android/local.properties
+android/key.properties
+android/app/debug/
+android/app/profile/
+android/app/release/
+android/app/build/
+*.jks
+*.keystore
+
+# Release and generated artifacts
+*.apk
+*.aab
+*.apks
+*.idsig
+*.symbols
+app.*.map.json
+PocketDaemon-magisk.zip
+*-magisk.zip
+magisk/system/priv-app/
+
+# Local device data, extracted firmware, and downloaded references
+download/
+factory_extract/
+image_extract/
+skills/
+
+# Local configuration and secrets
+pocketdaemon_config.json
+pocket_daemon_prefs.xml
+config.json
+*.env
+*.env.*

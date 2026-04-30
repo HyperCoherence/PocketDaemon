@@ -1,0 +1,17 @@
+{
+  "apiKey": "YOUR_GEMINI_API_KEY",
+  "model": "gemini-3.1-flash-live-preview",
+  "ownerName": "Phone owner",
+  "agentName": "",
+  "agentRole": "personal AI assistant",
+  "answerDelay": 2000,
+  "voice": "Kore",
+  "memoryExtraction": true,
+  "speakerMonitor": true,
+  "bargeIn": true,
+  "recordAgentCalls": false,
+  "recordAgentConversations": false,
+  "recordPhoneCalls": false,
+  "youtubeMinutes": 15,
+  "systemPrompt": "You are a helpful phone assistant answering calls on behalf of the phone owner. Be concise and natural."
+}
