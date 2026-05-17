@@ -32,29 +32,29 @@ class TrustedCallSession(
 
         @Suppress("unused")
         fun oldTools(ownerName: String) = listOf(
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "hangUp",
                 description = "End the current phone call. Use when the conversation is finished or the caller wants to hang up.",
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "leave_message",
                 description = "Leave a message for $ownerName to read. Appears in their notification inbox. Use for caller messages, call summaries, or anything $ownerName needs to see and act on.",
                 parameters = stringParam("text", "The message content"),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "search_memory",
                 description = "Search $ownerName's memory for relevant information. Use keywords or phrases.",
                 parameters = stringParam("query", "Search keywords or phrase"),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "get_location",
                 description = "Get $ownerName's current GPS location.",
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "get_notes",
                 description = "Retrieve all notes and messages saved by the phone agent and chat sessions.",
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "use_skill",
                 description = "Load a skill's full instructions by name. Call this when one of the available skills is relevant to the current task.",
                 parameters = stringParam("name", "The skill folder name from the available skills list"),
@@ -74,7 +74,7 @@ class TrustedCallSession(
     ))
 
     private var audioHandler: CallAudioHandler? = null
-    private var gemini: GeminiLiveClient? = null
+    private var gemini: VoiceSessionClient? = null
     private var recorder: AudioRecorder? = null
     private var initialInterruptIgnoreUntilMs = 0L
     private var initialInterruptionIgnored = false
@@ -84,8 +84,8 @@ class TrustedCallSession(
         active = true
         Log.i(TAG, "Trusted session starting for ${callerConfig.name} ($callerNumber)")
 
-        val apiKey = app.apiKey
-        val model = app.model
+        val voiceConfig = app.agentConfig(AgentRoles.VOICE)
+        val apiKey = voiceConfig.apiKey
 
         if (apiKey.isBlank()) {
             Log.w(TAG, "No API key — audio only")
@@ -131,11 +131,9 @@ class TrustedCallSession(
             recorder = AudioRecorder("trusted-call").also { it.start() }
         }
 
-        gemini = GeminiLiveClient(
-            apiKey = apiKey,
-            model = model,
+        gemini = VoiceSessionFactory.create(
+            config = voiceConfig,
             systemPrompt = fullPrompt,
-            voice = app.voice,
             tools = enabledTools,
             googleSearch = useSearch,
             onAgentAudio = { pcm ->
@@ -148,7 +146,7 @@ class TrustedCallSession(
             },
             onToolCall = { name, _, args -> handleToolCall(name, args) },
             onReady = {
-                Log.i(TAG, "Gemini ready — greeting ${callerConfig.name}")
+                Log.i(TAG, "${voiceConfig.provider} voice ready - greeting ${callerConfig.name}")
                 armInitialInterruptIgnore()
                 gemini?.sendText("${callerConfig.name} is calling. Greet them warmly.")
             },
@@ -165,7 +163,7 @@ class TrustedCallSession(
                     recorder?.finishPlaybackTurn()
                 }
             },
-            onSessionEnded = { reason -> Log.i(TAG, "Gemini session ended: ${reason ?: "clean"}") }
+            onSessionEnded = { reason -> Log.i(TAG, "${voiceConfig.provider} voice session ended: ${reason ?: "clean"}") }
         )
 
         audioHandler = CallAudioHandler(context, speakerMonitor = app.speakerMonitorEnabled) { capturedPcm ->
@@ -175,7 +173,7 @@ class TrustedCallSession(
 
         gemini?.connect()
         audioHandler?.start()
-        Log.i(TAG, "Trusted session active: audio + Gemini Live (recording=${recorder != null})")
+        Log.i(TAG, "Trusted session active: audio + ${voiceConfig.provider} voice (recording=${recorder != null})")
     }
 
     override fun stop() {

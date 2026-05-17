@@ -16,7 +16,7 @@ security contact is published.
 
 ## Sensitive Surfaces
 
-- Gemini API keys
+- Provider API keys for Gemini, xAI, or future model providers
 - Call audio and recordings
 - SMS and outbound calling tools
 - Contacts and trusted-caller prompts

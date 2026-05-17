@@ -24,7 +24,10 @@ class PocketDaemonApp : Application() {
         const val CONFIG_FILENAME = "config.json"
 
         const val DEFAULT_API_KEY = ""
+        const val DEFAULT_VOICE_PROVIDER = ProviderIds.GEMINI
         const val DEFAULT_MODEL = "gemini-3.1-flash-live-preview"
+        const val DEFAULT_XAI_MODEL = "grok-voice-think-fast-1.0"
+        private val LEGACY_XAI_MODELS = setOf("grok-voice-fast-1.0")
         fun defaultSystemPrompt(ownerName: String): String {
             val owner = ownerName.ifBlank { "the phone owner" }
             return "You are a helpful phone assistant answering calls on behalf of $owner. Be concise and natural. Greet callers briefly. If the caller asks for $owner, let them know they are unavailable, ask for the reason of the call and offer to take a message or help them directly. IMPORTANT: Always ask the caller for their name before leaving a message. Every message must identify who called."
@@ -34,6 +37,7 @@ class PocketDaemonApp : Application() {
         const val DEFAULT_AGENT_ROLE = "personal AI assistant"
         const val DEFAULT_ANSWER_DELAY_MS = 2000L
         const val DEFAULT_VOICE = "Kore"
+        const val DEFAULT_XAI_VOICE = "eve"
 
         val AGENT_TOOLS = AgentToolRegistry.AGENT_TOOLS
         val TOOL_DEFAULTS_OFF = setOf<String>()
@@ -145,22 +149,256 @@ class PocketDaemonApp : Application() {
 
     fun configPut(key: String, value: Any?) = synchronized(configLock) {
         cachedConfig.put(key, value ?: JSONObject.NULL)
+        normalizeProviderSchemaLocked(cachedConfig)
         writeConfigToDisk(cachedConfig)
     }
 
     fun configPutAll(pairs: Map<String, Any?>) = synchronized(configLock) {
         for ((k, v) in pairs) cachedConfig.put(k, v ?: JSONObject.NULL)
+        normalizeProviderSchemaLocked(cachedConfig)
         writeConfigToDisk(cachedConfig)
+    }
+
+    fun providerApiKey(provider: String): String = synchronized(configLock) {
+        providerApiKeyLocked(provider.normalizeProviderId())
+    }
+
+    val voiceProvider: String
+        get() = agentConfig(AgentRoles.VOICE).provider
+
+    fun agentConfig(role: String): ProviderConfig = synchronized(configLock) {
+        normalizeProviderSchemaLocked(cachedConfig)
+        val normalizedRole = if (role in AgentRoles.ALL) role else AgentRoles.VOICE
+        val agents = cachedConfig.optJSONObject("agents") ?: JSONObject()
+        val obj = agents.optJSONObject(normalizedRole) ?: JSONObject()
+        val provider = obj.optString("provider", ProviderIds.GEMINI).normalizeProviderId()
+        val model = obj.optString("model", defaultModelFor(provider, normalizedRole)).ifBlank {
+            defaultModelFor(provider, normalizedRole)
+        }
+        val voice = if (normalizedRole == AgentRoles.VOICE) {
+            obj.optString("voice", defaultVoiceFor(provider)).ifBlank { defaultVoiceFor(provider) }
+        } else {
+            obj.optString("voice", "")
+        }
+        ProviderConfig(
+            role = normalizedRole,
+            provider = provider,
+            model = model,
+            voice = voice,
+            apiKey = providerApiKeyLocked(provider),
+        )
+    }
+
+    fun providerConfigMap(): Map<String, Map<String, String>> = synchronized(configLock) {
+        normalizeProviderSchemaLocked(cachedConfig)
+        mapOf(
+            ProviderIds.GEMINI to mapOf("apiKey" to providerApiKeyLocked(ProviderIds.GEMINI)),
+            ProviderIds.XAI to mapOf("apiKey" to providerApiKeyLocked(ProviderIds.XAI)),
+        )
+    }
+
+    fun agentConfigMap(): Map<String, Map<String, String>> = synchronized(configLock) {
+        normalizeProviderSchemaLocked(cachedConfig)
+        AgentRoles.ALL.associateWith { role ->
+            val cfg = agentConfig(role)
+            buildMap {
+                put("provider", cfg.provider)
+                put("model", cfg.model)
+                cfg.voice?.takeIf { it.isNotBlank() }?.let { put("voice", it) }
+            }
+        }
+    }
+
+    fun updateProviderSchema(
+        providers: Map<*, *>?,
+        agents: Map<*, *>?,
+        voiceProvider: String?,
+        voiceModel: String?,
+        voice: String?,
+        geminiApiKey: String?,
+        xaiApiKey: String?,
+    ) = synchronized(configLock) {
+        normalizeProviderSchemaLocked(cachedConfig)
+        val providersObj = cachedConfig.optJSONObject("providers") ?: JSONObject().also {
+            cachedConfig.put("providers", it)
+        }
+        val agentsObj = cachedConfig.optJSONObject("agents") ?: JSONObject().also {
+            cachedConfig.put("agents", it)
+        }
+
+        mergeProviders(providersObj, providers)
+        if (geminiApiKey != null) providerObj(providersObj, ProviderIds.GEMINI).put("apiKey", geminiApiKey)
+        if (xaiApiKey != null) providerObj(providersObj, ProviderIds.XAI).put("apiKey", xaiApiKey)
+
+        mergeAgents(agentsObj, agents)
+        val voiceObj = agentsObj.optJSONObject(AgentRoles.VOICE) ?: JSONObject().also {
+            agentsObj.put(AgentRoles.VOICE, it)
+        }
+        if (voiceProvider != null) voiceObj.put("provider", voiceProvider.normalizeProviderId())
+        if (voiceModel != null) voiceObj.put("model", voiceModel)
+        if (voice != null) voiceObj.put("voice", voice)
+
+        normalizeProviderSchemaLocked(cachedConfig)
+        cachedConfig.put("apiKey", providerApiKeyLocked(ProviderIds.GEMINI))
+        cachedConfig.put("model", agentConfig(AgentRoles.VOICE).model)
+        cachedConfig.put("voice", agentConfig(AgentRoles.VOICE).voice ?: "")
+        writeConfigToDisk(cachedConfig)
+    }
+
+    private fun providerApiKeyLocked(provider: String): String {
+        val providers = cachedConfig.optJSONObject("providers")
+        val fromProvider = providers
+            ?.optJSONObject(provider.normalizeProviderId())
+            ?.optString("apiKey", "")
+            ?.takeIf { it.isNotBlank() }
+        if (fromProvider != null) return fromProvider
+        return when (provider.normalizeProviderId()) {
+            ProviderIds.GEMINI -> cachedConfig.optString("apiKey", DEFAULT_API_KEY)
+            ProviderIds.XAI -> cachedConfig.optString("xaiApiKey", "")
+            else -> ""
+        }
+    }
+
+    private fun normalizeProviderSchemaLocked(json: JSONObject): Boolean {
+        var changed = false
+
+        val providers = json.optJSONObject("providers") ?: JSONObject().also {
+            json.put("providers", it)
+            changed = true
+        }
+        val geminiProvider = providerObj(providers, ProviderIds.GEMINI)
+        if (!geminiProvider.has("apiKey")) {
+            geminiProvider.put("apiKey", json.optString("apiKey", DEFAULT_API_KEY))
+            changed = true
+        }
+        val xaiProvider = providerObj(providers, ProviderIds.XAI)
+        if (!xaiProvider.has("apiKey")) {
+            xaiProvider.put("apiKey", json.optString("xaiApiKey", ""))
+            changed = true
+        }
+
+        val agents = json.optJSONObject("agents") ?: JSONObject().also {
+            json.put("agents", it)
+            changed = true
+        }
+        changed = ensureAgentLocked(
+            agents,
+            role = AgentRoles.VOICE,
+            provider = json.optString("voiceProvider", ProviderIds.GEMINI).normalizeProviderId(),
+            model = json.optString("model", ""),
+            voice = json.optString("voice", ""),
+        ) || changed
+        for (role in listOf(AgentRoles.EXPERT, AgentRoles.SCHEDULER, AgentRoles.MEMORY)) {
+            changed = ensureAgentLocked(
+                agents,
+                role = role,
+                provider = ProviderIds.GEMINI,
+                model = json.optString("${role}Model", DEFAULT_MODEL),
+                voice = null,
+            ) || changed
+        }
+        return changed
+    }
+
+    private fun ensureAgentLocked(
+        agents: JSONObject,
+        role: String,
+        provider: String,
+        model: String,
+        voice: String?,
+    ): Boolean {
+        var changed = false
+        val obj = agents.optJSONObject(role) ?: JSONObject().also {
+            agents.put(role, it)
+            changed = true
+        }
+        val normalizedProvider = obj.optString("provider", provider).normalizeProviderId()
+        if (obj.optString("provider", "") != normalizedProvider) {
+            obj.put("provider", normalizedProvider)
+            changed = true
+        }
+        val configuredModel = obj.optString("model", model).trim()
+        if (modelNeedsDefault(normalizedProvider, role, configuredModel)) {
+            obj.put("model", defaultModelFor(normalizedProvider, role))
+            changed = true
+        } else if (!obj.has("model") || obj.optString("model") != configuredModel) {
+            obj.put("model", configuredModel)
+            changed = true
+        }
+        if (voice != null && (!obj.has("voice") || obj.optString("voice").isBlank())) {
+            obj.put("voice", voice.ifBlank { defaultVoiceFor(normalizedProvider) })
+            changed = true
+        }
+        return changed
+    }
+
+    private fun providerObj(providers: JSONObject, provider: String): JSONObject {
+        return providers.optJSONObject(provider) ?: JSONObject().also {
+            providers.put(provider, it)
+        }
+    }
+
+    private fun mergeProviders(target: JSONObject, incoming: Map<*, *>?) {
+        if (incoming == null) return
+        for ((providerKey, value) in incoming) {
+            val provider = providerKey?.toString()?.normalizeProviderId() ?: continue
+            val obj = providerObj(target, provider)
+            @Suppress("UNCHECKED_CAST")
+            val map = value as? Map<Any?, Any?> ?: continue
+            map["apiKey"]?.let { obj.put("apiKey", it.toString()) }
+        }
+    }
+
+    private fun mergeAgents(target: JSONObject, incoming: Map<*, *>?) {
+        if (incoming == null) return
+        for ((roleKey, value) in incoming) {
+            val role = roleKey?.toString() ?: continue
+            if (role !in AgentRoles.ALL) continue
+            val obj = target.optJSONObject(role) ?: JSONObject().also { target.put(role, it) }
+            @Suppress("UNCHECKED_CAST")
+            val map = value as? Map<Any?, Any?> ?: continue
+            map["provider"]?.let { obj.put("provider", it.toString().normalizeProviderId()) }
+            map["model"]?.let { obj.put("model", it.toString()) }
+            map["voice"]?.let { obj.put("voice", it.toString()) }
+        }
+    }
+
+    private fun String.normalizeProviderId(): String =
+        lowercase().trim().let { if (it == ProviderIds.XAI) ProviderIds.XAI else ProviderIds.GEMINI }
+
+    private fun defaultModelFor(provider: String, role: String): String {
+        return if (role == AgentRoles.VOICE && provider.normalizeProviderId() == ProviderIds.XAI) {
+            DEFAULT_XAI_MODEL
+        } else {
+            DEFAULT_MODEL
+        }
+    }
+
+    private fun modelNeedsDefault(provider: String, role: String, model: String): Boolean {
+        val normalizedProvider = provider.normalizeProviderId()
+        val trimmedModel = model.trim()
+        if (trimmedModel.isBlank()) return true
+        if (role == AgentRoles.VOICE && normalizedProvider == ProviderIds.XAI) {
+            return trimmedModel in LEGACY_XAI_MODELS || trimmedModel.startsWith("gemini-")
+        }
+        if (normalizedProvider == ProviderIds.GEMINI) {
+            return trimmedModel.startsWith("grok-voice-")
+        }
+        return false
+    }
+
+    private fun defaultVoiceFor(provider: String): String {
+        return if (provider.normalizeProviderId() == ProviderIds.XAI) DEFAULT_XAI_VOICE else DEFAULT_VOICE
     }
 
     val agentEnabled: Boolean
         get() = configGet("agentEnabled", false)
 
     val apiKey: String
-        get() = configGet("apiKey", DEFAULT_API_KEY)
+        get() = providerApiKey(ProviderIds.GEMINI)
 
     val model: String
-        get() = configGet("model", DEFAULT_MODEL)
+        get() = agentConfig(AgentRoles.VOICE).model
 
     val systemPrompt: String
         get() {
@@ -192,7 +430,7 @@ class PocketDaemonApp : Application() {
         get() = configGet("bargeIn", true)
 
     val voice: String
-        get() = configGet("voice", DEFAULT_VOICE)
+        get() = agentConfig(AgentRoles.VOICE).voice ?: DEFAULT_VOICE
 
     val memoryExtractionEnabled: Boolean
         get() = configGet("memoryExtraction", true)
@@ -313,6 +551,7 @@ class PocketDaemonApp : Application() {
     private fun initConfig() {
         if (configFile.exists() && configFile.length() > 0) {
             cachedConfig = readConfigFromDisk()
+            if (normalizeProviderSchemaLocked(cachedConfig)) writeConfigToDisk(cachedConfig)
             Log.i(TAG, "Config loaded from ${configFile.absolutePath}")
             return
         }
@@ -326,6 +565,7 @@ class PocketDaemonApp : Application() {
         json.put("agentName", prefs.getString("agent_name", DEFAULT_AGENT_NAME) ?: DEFAULT_AGENT_NAME)
         json.put("agentRole", prefs.getString("agent_role", DEFAULT_AGENT_ROLE) ?: DEFAULT_AGENT_ROLE)
         json.put("voice", prefs.getString("gemini_voice", DEFAULT_VOICE) ?: DEFAULT_VOICE)
+        normalizeProviderSchemaLocked(json)
         json.put("memoryExtraction", prefs.getBoolean("memory_extraction_enabled", true))
         json.put("speakerMonitor", prefs.getBoolean("speaker_monitor_enabled", true))
         json.put("bargeIn", prefs.getBoolean("barge_in_enabled", true))
@@ -379,6 +619,10 @@ class PocketDaemonApp : Application() {
     private val DOWNLOAD_CONFIG_KEYS = setOf(
         "apiKey",
         "model",
+        "providers",
+        "agents",
+        "voiceProvider",
+        "xaiApiKey",
         "ownerName",
         "agentName",
         "agentRole",
@@ -415,6 +659,7 @@ class PocketDaemonApp : Application() {
                     }
                     cachedConfig.put(key, json.get(key))
                 }
+                normalizeProviderSchemaLocked(cachedConfig)
                 writeConfigToDisk(cachedConfig)
             }
             file.delete()

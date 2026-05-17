@@ -68,7 +68,7 @@ class MainActivity : FlutterActivity() {
                         val pInfo = packageManager.getPackageInfo(packageName, 0)
                         result.success(mapOf(
                             "agentEnabled" to app.agentEnabled,
-                            "hasApiKey" to app.apiKey.isNotBlank(),
+                            "hasApiKey" to app.agentConfig(AgentRoles.VOICE).apiKey.isNotBlank(),
                             "appVersion" to (pInfo.versionName ?: "unknown"),
                             "chatMode" to app.configGet("chatMode", "conversation"),
                         ))
@@ -82,14 +82,20 @@ class MainActivity : FlutterActivity() {
                     "setConfig" -> {
                         val systemPrompt = call.argument<String>("systemPrompt")
                         if (systemPrompt != null) app.writeSystemPrompt(systemPrompt)
+                        app.updateProviderSchema(
+                            providers = call.argument<Map<*, *>>("providers"),
+                            agents = call.argument<Map<*, *>>("agents"),
+                            voiceProvider = call.argument<String>("voiceProvider"),
+                            voiceModel = call.argument<String>("voiceModel") ?: call.argument<String>("model"),
+                            voice = call.argument<String>("voice"),
+                            geminiApiKey = call.argument<String>("geminiApiKey") ?: call.argument<String>("apiKey"),
+                            xaiApiKey = call.argument<String>("xaiApiKey"),
+                        )
                         val pairs = mutableMapOf<String, Any?>()
-                        call.argument<String>("apiKey")?.let { pairs["apiKey"] = it }
-                        call.argument<String>("model")?.let { pairs["model"] = it }
                         call.argument<Int>("answerDelay")?.let { pairs["answerDelay"] = it.toLong() }
                         call.argument<String>("ownerName")?.let { pairs["ownerName"] = it }
                         call.argument<String>("agentName")?.let { pairs["agentName"] = it }
                         call.argument<String>("agentRole")?.let { pairs["agentRole"] = it }
-                        call.argument<String>("voice")?.let { pairs["voice"] = it }
                         if (pairs.isNotEmpty()) app.configPutAll(pairs)
                         result.success(true)
                     }
@@ -98,6 +104,9 @@ class MainActivity : FlutterActivity() {
                         result.success(mapOf(
                             "apiKey" to app.apiKey,
                             "model" to app.model,
+                            "voiceProvider" to app.voiceProvider,
+                            "providers" to app.providerConfigMap(),
+                            "agents" to app.agentConfigMap(),
                             "systemPrompt" to app.systemPrompt,
                             "answerDelay" to app.answerDelayMs.toInt(),
                             "speakerMonitor" to app.speakerMonitorEnabled,

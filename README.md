@@ -27,7 +27,8 @@ material risk.
 - Local memory stored under `/sdcard/PocketDaemon/`
 - Scheduled tasks
 - Skills loaded from Markdown files
-- Optional Google Search grounding through Gemini
+- Provider-selectable realtime voice through Gemini or xAI
+- Optional provider search grounding through Gemini or xAI voice sessions
 
 See [FEATURES.md](FEATURES.md) for the full current feature list.
 
@@ -36,7 +37,7 @@ See [FEATURES.md](FEATURES.md) for the full current feature list.
 - Rooted Android device with Magisk
 - Flutter SDK
 - Android SDK / platform tools
-- A Gemini API key
+- A Gemini API key, xAI API key, or both
 - A device and jurisdiction where call handling/recording behavior is lawful
 
 ## Build
@@ -56,6 +57,23 @@ The app stores runtime data under `/sdcard/PocketDaemon/`. For provisioning, cop
 `pocketdaemon_config.example.json` to `pocketdaemon_config.json`, fill in local
 values, and place it in `/sdcard/Download/` before launching the app. The app
 imports supported keys and deletes the sideload file after a successful merge.
+
+The easier first-run path is the USB tool:
+
+```powershell
+cd tools/pocketdaemonctl
+go run . doctor
+go run . install
+go run . setup
+```
+
+`setup` opens a localhost browser editor for the voice provider, API keys,
+identity, `CALL_PROMPT.md`, `memory/SOUL.md`, trusted contacts, skills, scheduled
+tasks, and advanced memory files. Non-interactive setup is also available:
+
+```powershell
+go run . setup --provider xai --api-key "$env:XAI_API_KEY" --apply
+```
 
 Never commit real API keys or personal config exports.
 

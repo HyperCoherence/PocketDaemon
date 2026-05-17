@@ -2,11 +2,11 @@
 
 ## AI Phone Receptionist
 
-Answers incoming calls autonomously using Gemini Live real-time voice streaming. The agent speaks naturally over WebSocket-streamed PCM audio (16 kHz capture, 24 kHz playback), handles the conversation, and either resolves the caller intent or takes a message. No human interaction required.
+Answers incoming calls autonomously using provider-neutral realtime voice streaming. Gemini Live and xAI Voice Agent are first-class voice providers. The agent speaks naturally over WebSocket-streamed PCM audio (16 kHz capture, 24 kHz playback), handles the conversation, and either resolves the caller intent or takes a message. No human interaction required.
 
 ## Real-Time Voice Conversation
 
-Full duplex voice chat outside of phone calls. Push-to-talk or continuous conversation mode with a dedicated foreground service for mic access. Audio-reactive orb visualization reflects agent state (idle, listening, thinking, speaking). Sessions persist via Gemini Live session handles for seamless resume.
+Full duplex voice chat outside of phone calls. Push-to-talk or continuous conversation mode with a dedicated foreground service for mic access. Audio-reactive orb visualization reflects agent state (idle, listening, thinking, speaking). Gemini sessions persist via Live session handles for seamless resume.
 
 ## Caller Routing and Trust Tiers
 
@@ -28,9 +28,9 @@ Long-term memory built from session transcripts. MEMORY.md stores extracted fact
 
 Time-triggered tasks via AlarmManager with exact alarms. When fired, the task prompt runs through Gemini Pro, and the result is saved as a note with a notification.
 
-## Google Search Grounding
+## Search Grounding
 
-Toggleable per agent tier. When enabled, the Gemini Live session gets real-time Google Search access mid-conversation.
+Toggleable per agent tier. Gemini sessions get Google Search access; xAI sessions get web search and X search access mid-conversation.
 
 ## Expert Advisor
 
@@ -80,9 +80,16 @@ Installs as a privileged system app via Magisk module. Grants MODIFY_PHONE_STATE
 
 Registers as InCallService and optionally as system assistant (long-press power). Both set via root commands without user prompts.
 
+## USB Installer and Configuration
+
+`tools/pocketdaemonctl` provides `doctor`, `install`, `setup`, `verify`, `backup`,
+and `restore`. The setup command opens a localhost browser editor over USB for
+provider selection, API keys, identity, prompts, trusted contacts, skills,
+scheduled tasks, and advanced memory files.
+
 ## Sideload Configuration
 
-Drop pocketdaemon_config.json into /sdcard/Download/ for auto-import on launch. API key, model, system prompt, all settings. File consumed after merge. Zero-touch provisioning.
+Drop pocketdaemon_config.json into /sdcard/Download/ for auto-import on launch. Provider schema, API keys, model, voice, system prompt, and supported settings are merged. File consumed after merge. Zero-touch provisioning remains available.
 
 ## Premium Glass UI
 
@@ -94,4 +101,4 @@ Editable SOUL.md with variable substitution. Separate CALL_PROMPT.md override. P
 
 ## Offline-First Architecture
 
-All data on /sdcard/PocketDaemon/. Config, memory, notes, logs, skills, recordings, scheduled tasks. Human-readable markdown and JSON. Only network dependency is Gemini API.
+All data on /sdcard/PocketDaemon/. Config, memory, notes, logs, skills, recordings, scheduled tasks. Human-readable markdown and JSON. Realtime voice can use Gemini or xAI; expert, scheduler, and memory roles currently remain Gemini-backed.

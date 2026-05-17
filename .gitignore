@@ -36,6 +36,7 @@ android/app/build/
 *.apk
 *.aab
 *.apks
+*.exe
 *.idsig
 *.symbols
 app.*.map.json

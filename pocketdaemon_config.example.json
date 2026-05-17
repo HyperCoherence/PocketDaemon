@@ -1,11 +1,35 @@
 {
-  "apiKey": "YOUR_GEMINI_API_KEY",
-  "model": "gemini-3.1-flash-live-preview",
+  "providers": {
+    "gemini": {
+      "apiKey": "YOUR_GEMINI_API_KEY"
+    },
+    "xai": {
+      "apiKey": "YOUR_XAI_API_KEY"
+    }
+  },
+  "agents": {
+    "voice": {
+      "provider": "gemini",
+      "model": "gemini-3.1-flash-live-preview",
+      "voice": "Kore"
+    },
+    "expert": {
+      "provider": "gemini",
+      "model": "gemini-3.1-flash-live-preview"
+    },
+    "scheduler": {
+      "provider": "gemini",
+      "model": "gemini-3.1-flash-live-preview"
+    },
+    "memory": {
+      "provider": "gemini",
+      "model": "gemini-3.1-flash-live-preview"
+    }
+  },
   "ownerName": "Phone owner",
   "agentName": "",
   "agentRole": "personal AI assistant",
   "answerDelay": 2000,
-  "voice": "Kore",
   "memoryExtraction": true,
   "speakerMonitor": true,
   "bargeIn": true,

@@ -31,16 +31,16 @@ class CallSession(
 
         @Suppress("unused")
         fun oldTools(ownerName: String) = listOf(
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "hangUp",
                 description = "End the current phone call. Use when the conversation is finished or the caller wants to hang up.",
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "leave_message",
                 description = "Leave a message for $ownerName to read. Appears in their notification inbox. Use for caller messages, call summaries, or anything $ownerName needs to see and act on. IMPORTANT: Always ask who is calling before using this tool — every message must include the caller's name.",
                 parameters = stringParam("text", "The message content"),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "use_skill",
                 description = "Load a skill's full instructions by name. Call this when one of the available skills is relevant to the current task.",
                 parameters = stringParam("name", "The skill folder name from the available skills list"),
@@ -57,7 +57,7 @@ class CallSession(
     private val sessionLog = SessionLogger.create(context, "call", mapOf("caller" to callerNumber))
 
     private var audioHandler: CallAudioHandler? = null
-    private var gemini: GeminiLiveClient? = null
+    private var gemini: VoiceSessionClient? = null
     private var recorder: AudioRecorder? = null
     private var initialInterruptIgnoreUntilMs = 0L
     private var initialInterruptionIgnored = false
@@ -67,8 +67,8 @@ class CallSession(
         active = true
         Log.i(TAG, "Session starting for $callerNumber")
 
-        val apiKey = app.apiKey
-        val model = app.model
+        val voiceConfig = app.agentConfig(AgentRoles.VOICE)
+        val apiKey = voiceConfig.apiKey
 
         if (apiKey.isBlank()) {
             Log.w(TAG, "No API key configured — audio only, no AI")
@@ -107,11 +107,9 @@ class CallSession(
             recorder = AudioRecorder("call").also { it.start() }
         }
 
-        gemini = GeminiLiveClient(
-            apiKey = apiKey,
-            model = model,
+        gemini = VoiceSessionFactory.create(
+            config = voiceConfig,
             systemPrompt = fullPrompt,
-            voice = app.voice,
             tools = enabledTools,
             googleSearch = useSearch,
             onAgentAudio = { pcm ->
@@ -124,7 +122,7 @@ class CallSession(
             },
             onToolCall = { name, _, args -> handleToolCall(name, args) },
             onReady = {
-                Log.i(TAG, "Gemini ready — sending greeting prompt")
+                Log.i(TAG, "${voiceConfig.provider} voice ready - sending greeting prompt")
                 val greeting = if (callerName != null) {
                     "A caller named $callerName is on the line from $callerNumber. Greet them by name."
                 } else {
@@ -147,7 +145,7 @@ class CallSession(
                 }
             },
             onSessionEnded = { reason ->
-                Log.i(TAG, "Gemini session ended: ${reason ?: "clean"}")
+                Log.i(TAG, "${voiceConfig.provider} voice session ended: ${reason ?: "clean"}")
             }
         )
 
@@ -159,7 +157,7 @@ class CallSession(
         gemini?.connect()
         audioHandler?.start()
 
-        Log.i(TAG, "Session active: audio + Gemini Live (recording=${recorder != null})")
+        Log.i(TAG, "Session active: audio + ${voiceConfig.provider} voice (recording=${recorder != null})")
     }
 
     private fun startAudioOnly() {

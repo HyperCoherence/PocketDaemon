@@ -51,25 +51,25 @@ class ChatSession(
 
         @Suppress("unused")
         fun oldTools(ownerName: String) = listOf(
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "leave_message",
                 description = "Leave a message for $ownerName to read. Appears in their notification inbox. Use for caller messages, call summaries, or anything $ownerName needs to see and act on.",
                 parameters = stringParam("text", "The message content"),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "search_memory",
                 description = "Search $ownerName's memory for relevant information. Use keywords or phrases.",
                 parameters = stringParam("query", "Search keywords or phrase"),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "get_location",
                 description = "Get $ownerName's current GPS location.",
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "get_notes",
                 description = "Retrieve all notes and messages saved by the phone agent and chat sessions.",
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "open_maps",
                 description = "Open Google Maps with a specific address or place. Set navigate=true when $ownerName wants turn-by-turn directions (example: 'take me to', 'navigate to', 'drive to'). Navigation mode replaces the current destination if already navigating — use it to correct a wrong address. Default mode (navigate=false) opens a map search.",
                 parameters = JSONObject()
@@ -79,7 +79,7 @@ class ChatSession(
                         .put("navigate", JSONObject().put("type", "boolean").put("description", "true for turn-by-turn navigation, false for map search (default false)")))
                     .put("required", JSONArray().put("address")),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "play_youtube",
                 description = "Play a YouTube video. Use google_search first to find a specific, age-appropriate video URL on the topic, then call this tool with that URL. YouTube time is limited per day; the system auto-closes YouTube when time runs out. If the limit is reached, tell the user their YouTube time for today is used up and they need approval for more. Only play educational or enriching content.",
                 parameters = JSONObject()
@@ -89,12 +89,12 @@ class ChatSession(
                         .put("title", JSONObject().put("type", "string").put("description", "Video title for logging")))
                     .put("required", JSONArray().put("url")),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "ask_expert",
                 description = "Consult a more powerful AI model for complex questions requiring deep reasoning, analysis, math, coding, or detailed knowledge. Use when the question is hard enough that you want a second, more thorough opinion before answering $ownerName.",
                 parameters = stringParam("question", "The question or problem to send to the expert model"),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "add_contact",
                 description = "Add a contact to $ownerName's phone. Use when $ownerName asks you to save someone's number. Phone numbers MUST be in full international format.",
                 parameters = JSONObject()
@@ -104,25 +104,25 @@ class ChatSession(
                         .put("phone", JSONObject().put("type", "string").put("description", "Phone number")))
                     .put("required", JSONArray().put("name").put("phone")),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "dial_contact",
                 description = "Search $ownerName's phonebook by name and call the matching contact. You will be connected to the call and can speak with them on $ownerName's behalf. Do NOT guess — if zero or multiple contacts match, report back to $ownerName instead of dialing. When the call ends you will automatically return to talking with $ownerName.",
                 parameters = stringParam("name", "Contact name to search for"),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "dial_number",
                 description = "Call the given phone number directly. You will be connected to the call and can speak with the person on $ownerName's behalf. Only use when $ownerName provides an explicit number or you retrieved it from a previous lookup. When the call ends you will automatically return to talking with $ownerName.",
                 parameters = stringParam("number", "Phone number to dial"),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "hangUp",
                 description = "End the current outbound phone call and return to talking with $ownerName. Only works during an active bridged call.",
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "end_session",
                 description = "End the current chat session and disconnect. Use when the conversation is complete, $ownerName says goodbye, or there is nothing more to discuss.",
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "schedule_task",
                 description = "Schedule a task for the future. The task prompt will be executed automatically at the scheduled time and the result delivered as a notification to $ownerName. Use for reminders, periodic check-ins, delayed actions, or anything $ownerName wants done later.",
                 parameters = JSONObject()
@@ -145,7 +145,7 @@ class ChatSession(
                             .put("description", "Minutes between recurrences (required if recurring is true)")))
                     .put("required", JSONArray().put("description").put("prompt").put("delayMinutes")),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "take_photo",
                 description = "Take a photo using the phone's camera. Saves to storage. Supports an optional delay timer (e.g. 'take a photo in 5 seconds'). Tell $ownerName before capturing so they can prepare.",
                 parameters = JSONObject()
@@ -159,7 +159,7 @@ class ChatSession(
                             .put("type", "integer")
                             .put("description", "Seconds to wait before taking the photo (0-30, default 0)"))),
             ),
-            GeminiLiveClient.ToolDeclaration(
+            ToolSpec(
                 name = "use_skill",
                 description = "Load a skill's full instructions by name. Call this when one of the available skills is relevant to the current task.",
                 parameters = stringParam("name", "The skill folder name from the available skills list"),
@@ -177,7 +177,7 @@ class ChatSession(
         AgentToolExecutor(context, "chat", "voice") { appSwitchedShortTimeout = true }
     }
 
-    private var gemini: GeminiLiveClient? = null
+    private var gemini: VoiceSessionClient? = null
     private var audioHandler: ChatAudioHandler? = null
     private var callAudioHandler: CallAudioHandler? = null
     private var recorder: AudioRecorder? = null
@@ -255,23 +255,23 @@ class ChatSession(
             append("This is a direct conversation, not a phone call.")
         }
 
-        connectGemini(fullPrompt, savedHandle)
+        connectVoice(fullPrompt, savedHandle)
     }
 
-    private fun connectGemini(prompt: String, resumeHandle: String?) {
+    private fun connectVoice(prompt: String, resumeHandle: String?) {
+        val voiceConfig = app.agentConfig(AgentRoles.VOICE)
         val enabledTools = tools(app.ownerName).filter { app.isToolEnabled("chat", it.name) }
-        val wantSearch = app.isToolEnabled("chat", "google_search") && !searchQuotaExhausted
-        Log.i(TAG, "Connecting: googleSearch=$wantSearch, tools=${enabledTools.map { it.name }}")
+        val wantSearch = app.isToolEnabled("chat", "google_search") &&
+            !searchQuotaExhausted
+        Log.i(TAG, "Connecting ${voiceConfig.provider} voice: googleSearch=$wantSearch, tools=${enabledTools.map { it.name }}")
 
         if (recorder == null && app.recordAgentConversationsEnabled) {
             recorder = AudioRecorder("chat").also { it.start() }
         }
 
-        gemini = GeminiLiveClient(
-            apiKey = app.apiKey,
-            model = app.model,
+        gemini = VoiceSessionFactory.create(
+            config = voiceConfig,
             systemPrompt = prompt,
-            voice = app.voice,
             tools = enabledTools,
             googleSearch = wantSearch,
             resumeHandle = resumeHandle,
@@ -285,7 +285,7 @@ class ChatSession(
             },
             onToolCall = { name, _, args -> handleToolCall(name, args) },
             onReady = {
-                Log.i(TAG, "Gemini ready for chat (googleSearch=$wantSearch)")
+                Log.i(TAG, "${voiceConfig.provider} voice ready for chat (googleSearch=$wantSearch)")
                 if (resumeHandle != null) {
                     val now = SimpleDateFormat("EEEE, MMMM d, yyyy 'at' h:mm a z", Locale.ENGLISH).format(Date())
                     gemini?.sendText("Current date and time: $now. ${app.ownerName} is back — greet them.")
@@ -325,23 +325,23 @@ class ChatSession(
                     app.emitEvent("chatTurnComplete", mapOf("conversationMode" to conversationMode))
                 }
             },
-            onSessionEnded = { reason ->
+            onSessionEnded = onEnded@ { reason ->
                 Log.i(TAG, "Chat session ended by server: ${reason ?: "clean"}")
 
-                if (reason != null && reason.contains("quota", ignoreCase = true) && wantSearch) {
+                if (voiceConfig.provider == ProviderIds.GEMINI && reason != null && reason.contains("quota", ignoreCase = true) && wantSearch) {
                     Log.w(TAG, "Google Search quota hit — retrying without search")
                     searchQuotaExhausted = true
                     gemini = null
-                    handler.post { connectGemini(prompt, null) }
-                    return@GeminiLiveClient
+                    handler.post { connectVoice(prompt, null) }
+                    return@onEnded
                 }
 
-                if (reason != null && reason.contains("expired", ignoreCase = true) && resumeHandle != null) {
+                if (voiceConfig.provider == ProviderIds.GEMINI && reason != null && reason.contains("expired", ignoreCase = true) && resumeHandle != null) {
                     Log.w(TAG, "Session expired — clearing handle and retrying fresh")
                     app.prefs.edit().remove(PREFS_KEY_HANDLE).remove(PREFS_KEY_SESSION_LOG).apply()
                     gemini = null
-                    handler.post { connectGemini(prompt, null) }
-                    return@GeminiLiveClient
+                    handler.post { connectVoice(prompt, null) }
+                    return@onEnded
                 }
 
                 handler.removeCallbacks(idleRunnable)
@@ -370,7 +370,8 @@ class ChatSession(
         if (conversationMode) return
         waitingForResponse = true
         audioHandler?.stopCapture()
-        Log.i(TAG, "Mic stopped, waiting for Gemini response")
+        gemini?.commitAudio()
+        Log.i(TAG, "Mic stopped, waiting for voice response")
         app.emitEvent("chatWaiting", emptyMap<String, Any>())
     }
 

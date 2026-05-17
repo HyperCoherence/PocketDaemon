@@ -78,7 +78,7 @@ object AgentToolRegistry {
 
     val ALWAYS_ON_TOOLS = setOf(HANG_UP)
 
-    fun liveDeclarations(ownerName: String, agentType: String): List<GeminiLiveClient.ToolDeclaration> {
+    fun liveDeclarations(ownerName: String, agentType: String): List<ToolSpec> {
         return toolNames(agentType).mapNotNull { name -> declaration(ownerName, agentType, name) }
     }
 
@@ -112,10 +112,10 @@ object AgentToolRegistry {
 
     private fun toolNames(agentType: String): List<String> = AGENT_TOOLS[agentType] ?: emptyList()
 
-    private fun declaration(ownerName: String, agentType: String, name: String): GeminiLiveClient.ToolDeclaration? {
+    private fun declaration(ownerName: String, agentType: String, name: String): ToolSpec? {
         if (name == GOOGLE_SEARCH) return null
         return when (name) {
-            HANG_UP -> GeminiLiveClient.ToolDeclaration(
+            HANG_UP -> ToolSpec(
                 name = name,
                 description = if (agentType == "chat") {
                     "End the current outbound phone call and return to talking with $ownerName. Only works while a call started by dial_contact or dial_number is active."
@@ -123,29 +123,29 @@ object AgentToolRegistry {
                     "End the current phone call. Use when the conversation is finished, the caller asks to hang up, or continuing is inappropriate."
                 },
             )
-            LEAVE_MESSAGE -> GeminiLiveClient.ToolDeclaration(
+            LEAVE_MESSAGE -> ToolSpec(
                 name = name,
                 description = "Save a notification/inbox message for $ownerName. Use for caller messages, call summaries, scheduled task results, or when $ownerName explicitly asks you to remember a short note. Include who said it and any requested follow-up.",
                 parameters = objectSchema(
                     "text" to stringSchema("Complete message text to save. Include names, context, and requested action.")
                 ),
             )
-            SEARCH_MEMORY -> GeminiLiveClient.ToolDeclaration(
+            SEARCH_MEMORY -> ToolSpec(
                 name = name,
                 description = "Search $ownerName's long-term memory and prior session logs. Use before saying you do not remember something from past conversations.",
                 parameters = objectSchema(
                     "query" to stringSchema("Specific keywords, names, dates, or phrase to search for.")
                 ),
             )
-            GET_LOCATION -> GeminiLiveClient.ToolDeclaration(
+            GET_LOCATION -> ToolSpec(
                 name = name,
                 description = "Get $ownerName's current GPS location. A successful result has status='ok'. If status is 'stale' or 'unavailable', do not present coordinates as current; explain that a fresh location is unavailable.",
             )
-            GET_NOTES -> GeminiLiveClient.ToolDeclaration(
+            GET_NOTES -> ToolSpec(
                 name = name,
                 description = "Retrieve saved inbox messages and notes from calls, chats, and scheduled tasks. Use when asked what messages or notes are waiting.",
             )
-            SEARCH_CONTACTS -> GeminiLiveClient.ToolDeclaration(
+            SEARCH_CONTACTS -> ToolSpec(
                 name = name,
                 description = "Search the phone contacts by name or phone number. This only returns matches; it does not call or message anyone.",
                 parameters = objectSchema(
@@ -154,7 +154,7 @@ object AgentToolRegistry {
                     optional = mapOf("limit" to integerSchema("Maximum matches to return, 1-25. Default 10.", 1, 25)),
                 ),
             )
-            SEND_SMS -> GeminiLiveClient.ToolDeclaration(
+            SEND_SMS -> ToolSpec(
                 name = name,
                 description = "Send an SMS text message from $ownerName's phone. Use only after explicit confirmation of the exact recipient and message. If not confirmed yet, call with confirmed=false to prepare a confirmation summary, then ask the user to confirm.",
                 parameters = objectSchema(
@@ -167,7 +167,7 @@ object AgentToolRegistry {
                     ),
                 ),
             )
-            OPEN_MAPS -> GeminiLiveClient.ToolDeclaration(
+            OPEN_MAPS -> ToolSpec(
                 name = name,
                 description = "Open Google Maps with an address, place, or search query. Set navigate=true for turn-by-turn directions when $ownerName asks to go/drive/navigate somewhere. Navigation replaces any current destination.",
                 parameters = objectSchema(
@@ -176,7 +176,7 @@ object AgentToolRegistry {
                     optional = mapOf("navigate" to booleanSchema("true for turn-by-turn navigation; false for map search.")),
                 ),
             )
-            PLAY_YOUTUBE -> GeminiLiveClient.ToolDeclaration(
+            PLAY_YOUTUBE -> ToolSpec(
                 name = name,
                 description = "Play a specific YouTube video. Use google_search first to find a direct, age-appropriate video URL. If the daily limit is reached, tell the user the limit is used up.",
                 parameters = objectSchema(
@@ -185,14 +185,14 @@ object AgentToolRegistry {
                     optional = mapOf("title" to stringSchema("Video title for logging and confirmation.")),
                 ),
             )
-            ASK_EXPERT -> GeminiLiveClient.ToolDeclaration(
+            ASK_EXPERT -> ToolSpec(
                 name = name,
                 description = "Consult a stronger model for complex reasoning, planning, math, coding, analysis, or careful second opinions. Do not use for simple questions. For current facts, use google_search first.",
                 parameters = objectSchema(
                     "question" to stringSchema("Self-contained question or problem for the expert model.")
                 ),
             )
-            ADD_CONTACT -> GeminiLiveClient.ToolDeclaration(
+            ADD_CONTACT -> ToolSpec(
                 name = name,
                 description = "Add a contact to $ownerName's phone. Use only when $ownerName asks to save a contact. Phone numbers should be full international format when possible.",
                 parameters = objectSchema(
@@ -201,25 +201,25 @@ object AgentToolRegistry {
                     required = listOf("name", "phone"),
                 ),
             )
-            DIAL_CONTACT -> GeminiLiveClient.ToolDeclaration(
+            DIAL_CONTACT -> ToolSpec(
                 name = name,
                 description = "Search contacts by name and call the single matching contact. Do not guess: if there are zero or multiple matches, report the matches instead of dialing.",
                 parameters = objectSchema(
                     "name" to stringSchema("Contact name to search and dial.")
                 ),
             )
-            DIAL_NUMBER -> GeminiLiveClient.ToolDeclaration(
+            DIAL_NUMBER -> ToolSpec(
                 name = name,
                 description = "Call a phone number directly. Use only when $ownerName explicitly provides the number or it came from a prior search_contacts/dial_contact result.",
                 parameters = objectSchema(
                     "number" to stringSchema("Phone number to dial.")
                 ),
             )
-            END_SESSION -> GeminiLiveClient.ToolDeclaration(
+            END_SESSION -> ToolSpec(
                 name = name,
                 description = "End the current chat session. Use when the conversation is complete, $ownerName says goodbye, or there is nothing more to do.",
             )
-            SCHEDULE_TASK -> GeminiLiveClient.ToolDeclaration(
+            SCHEDULE_TASK -> ToolSpec(
                 name = name,
                 description = "Schedule a future task. If the user gives an absolute date/time, convert it to delayMinutes using the current date/time in the system prompt. The task will run later and save its result as a notification note.",
                 parameters = objectSchema(
@@ -233,7 +233,7 @@ object AgentToolRegistry {
                     ),
                 ),
             )
-            LIST_SCHEDULED_TASKS -> GeminiLiveClient.ToolDeclaration(
+            LIST_SCHEDULED_TASKS -> ToolSpec(
                 name = name,
                 description = "List scheduled tasks, including inactive/cancelled tasks when requested.",
                 parameters = objectSchema(
@@ -243,14 +243,14 @@ object AgentToolRegistry {
                     ),
                 ),
             )
-            CANCEL_SCHEDULED_TASK -> GeminiLiveClient.ToolDeclaration(
+            CANCEL_SCHEDULED_TASK -> ToolSpec(
                 name = name,
                 description = "Cancel a scheduled task by id. Use list_scheduled_tasks first if the id is unknown or the user describes the task by name.",
                 parameters = objectSchema(
                     "id" to stringSchema("Scheduled task id to cancel.")
                 ),
             )
-            UPDATE_SCHEDULED_TASK -> GeminiLiveClient.ToolDeclaration(
+            UPDATE_SCHEDULED_TASK -> ToolSpec(
                 name = name,
                 description = "Update a scheduled task by id. Use list_scheduled_tasks first if the id is unknown. If changing time from an absolute date/time, convert to delayMinutes or nextFireMs using current date/time.",
                 parameters = objectSchema(
@@ -267,7 +267,7 @@ object AgentToolRegistry {
                     ),
                 ),
             )
-            TAKE_PHOTO -> GeminiLiveClient.ToolDeclaration(
+            TAKE_PHOTO -> ToolSpec(
                 name = name,
                 description = "Take a photo using the phone camera and save it. Tell $ownerName before capturing so they can prepare. Supports an optional delay timer.",
                 parameters = objectSchema(
@@ -281,7 +281,7 @@ object AgentToolRegistry {
                     ),
                 ),
             )
-            USE_SKILL -> GeminiLiveClient.ToolDeclaration(
+            USE_SKILL -> ToolSpec(
                 name = name,
                 description = "Load a skill's full instructions and optional live data by folder name. This only loads instructions; after reading the result, continue the task using those instructions.",
                 parameters = objectSchema(

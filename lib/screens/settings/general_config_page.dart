@@ -17,7 +17,8 @@ class GeneralConfigPage extends StatefulWidget {
 }
 
 class _GeneralConfigPageState extends State<GeneralConfigPage> {
-  final _apiKeyCtrl = TextEditingController();
+  final _geminiApiKeyCtrl = TextEditingController();
+  final _xaiApiKeyCtrl = TextEditingController();
   final _modelCtrl = TextEditingController();
   final _promptCtrl = TextEditingController();
   final _delayCtrl = TextEditingController();
@@ -28,10 +29,11 @@ class _GeneralConfigPageState extends State<GeneralConfigPage> {
   bool _speakerMonitor = true;
   bool _bargeIn = true;
   bool _assistantButton = false;
+  String _provider = 'gemini';
   String _voice = 'Kore';
   String _chatMode = 'conversation';
 
-  static const _voices = {
+  static const _geminiVoices = {
     'Zephyr': 'Bright',
     'Kore': 'Firm',
     'Orus': 'Firm',
@@ -64,6 +66,44 @@ class _GeneralConfigPageState extends State<GeneralConfigPage> {
     'Sulafat': 'Warm',
   };
 
+  static const _xaiVoices = {
+    'eve': 'Energetic',
+    'ara': 'Warm',
+    'rex': 'Clear',
+    'sal': 'Balanced',
+    'leo': 'Authoritative',
+  };
+
+  static const _legacyXaiModels = {'grok-voice-fast-1.0'};
+
+  Map<String, String> get _voiceOptions =>
+      _provider == 'xai' ? _xaiVoices : _geminiVoices;
+
+  String get _defaultVoice => _provider == 'xai' ? 'eve' : 'Kore';
+
+  String get _defaultModel => _provider == 'xai'
+      ? 'grok-voice-think-fast-1.0'
+      : 'gemini-3.1-flash-live-preview';
+
+  bool _modelNeedsDefault(String provider, String model) {
+    final trimmed = model.trim();
+    if (trimmed.isEmpty) return true;
+    if (provider == 'xai') {
+      return _legacyXaiModels.contains(trimmed) || trimmed.startsWith('gemini-');
+    }
+    return trimmed.startsWith('grok-voice-');
+  }
+
+  void _selectProvider(String provider) {
+    setState(() {
+      _provider = provider;
+      if (!_voiceOptions.containsKey(_voice)) _voice = _defaultVoice;
+      if (_modelNeedsDefault(provider, _modelCtrl.text)) {
+        _modelCtrl.text = _defaultModel;
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -72,7 +112,8 @@ class _GeneralConfigPageState extends State<GeneralConfigPage> {
 
   @override
   void dispose() {
-    _apiKeyCtrl.dispose();
+    _geminiApiKeyCtrl.dispose();
+    _xaiApiKeyCtrl.dispose();
     _modelCtrl.dispose();
     _promptCtrl.dispose();
     _delayCtrl.dispose();
@@ -86,8 +127,35 @@ class _GeneralConfigPageState extends State<GeneralConfigPage> {
     try {
       final config = await widget.control.invokeMethod('getConfig');
       if (config is Map) {
-        _apiKeyCtrl.text = config['apiKey']?.toString() ?? '';
-        _modelCtrl.text = config['model']?.toString() ?? '';
+        final providers = config['providers'] is Map
+            ? Map<Object?, Object?>.from(config['providers'] as Map)
+            : const <Object?, Object?>{};
+        final agents = config['agents'] is Map
+            ? Map<Object?, Object?>.from(config['agents'] as Map)
+            : const <Object?, Object?>{};
+        final gemini = providers['gemini'] is Map
+            ? Map<Object?, Object?>.from(providers['gemini'] as Map)
+            : const <Object?, Object?>{};
+        final xai = providers['xai'] is Map
+            ? Map<Object?, Object?>.from(providers['xai'] as Map)
+            : const <Object?, Object?>{};
+        final voiceAgent = agents['voice'] is Map
+            ? Map<Object?, Object?>.from(agents['voice'] as Map)
+            : const <Object?, Object?>{};
+
+        _provider =
+            voiceAgent['provider']?.toString() ??
+            config['voiceProvider']?.toString() ??
+            'gemini';
+        if (_provider != 'xai') _provider = 'gemini';
+        _geminiApiKeyCtrl.text =
+            gemini['apiKey']?.toString() ?? config['apiKey']?.toString() ?? '';
+        _xaiApiKeyCtrl.text = xai['apiKey']?.toString() ?? '';
+        _modelCtrl.text =
+            voiceAgent['model']?.toString() ?? config['model']?.toString() ?? '';
+        if (_modelNeedsDefault(_provider, _modelCtrl.text)) {
+          _modelCtrl.text = _defaultModel;
+        }
         _promptCtrl.text = config['systemPrompt']?.toString() ?? '';
         _delayCtrl.text = (config['answerDelay'] ?? 2000).toString();
         _speakerMonitor = config['speakerMonitor'] != false;
@@ -96,7 +164,9 @@ class _GeneralConfigPageState extends State<GeneralConfigPage> {
         _ownerNameCtrl.text = config['ownerName']?.toString() ?? '';
         _agentNameCtrl.text = config['agentName']?.toString() ?? '';
         _agentRoleCtrl.text = config['agentRole']?.toString() ?? '';
-        _voice = config['voice']?.toString() ?? 'Kore';
+        _voice =
+            voiceAgent['voice']?.toString() ?? config['voice']?.toString() ?? '';
+        if (!_voiceOptions.containsKey(_voice)) _voice = _defaultVoice;
         _chatMode = config['chatMode']?.toString() ?? 'conversation';
       }
       setState(() => _loaded = true);
@@ -106,14 +176,28 @@ class _GeneralConfigPageState extends State<GeneralConfigPage> {
   Future<void> _save() async {
     HapticFeedback.mediumImpact();
     await widget.control.invokeMethod('setConfig', {
-      'apiKey': _apiKeyCtrl.text.trim(),
-      'model': _modelCtrl.text.trim(),
+      'apiKey': _geminiApiKeyCtrl.text.trim(),
+      'geminiApiKey': _geminiApiKeyCtrl.text.trim(),
+      'xaiApiKey': _xaiApiKeyCtrl.text.trim(),
+      'voiceProvider': _provider,
+      'voiceModel': _modelCtrl.text.trim(),
       'systemPrompt': _promptCtrl.text.trim(),
       'answerDelay': int.tryParse(_delayCtrl.text.trim()) ?? 2000,
       'ownerName': _ownerNameCtrl.text.trim(),
       'agentName': _agentNameCtrl.text.trim(),
       'agentRole': _agentRoleCtrl.text.trim(),
       'voice': _voice,
+      'providers': {
+        'gemini': {'apiKey': _geminiApiKeyCtrl.text.trim()},
+        'xai': {'apiKey': _xaiApiKeyCtrl.text.trim()},
+      },
+      'agents': {
+        'voice': {
+          'provider': _provider,
+          'model': _modelCtrl.text.trim(),
+          'voice': _voice,
+        },
+      },
     });
     widget.onRefresh();
     if (mounted) {
@@ -300,8 +384,27 @@ class _GeneralConfigPageState extends State<GeneralConfigPage> {
               title: 'Configuration',
               child: Column(
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'gemini', label: Text('Gemini')),
+                        ButtonSegment(value: 'xai', label: Text('xAI')),
+                      ],
+                      selected: {_provider},
+                      onSelectionChanged: (v) {
+                        HapticFeedback.selectionClick();
+                        _selectProvider(v.first);
+                      },
+                      style: const ButtonStyle(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   TextField(
-                    controller: _apiKeyCtrl,
+                    controller: _geminiApiKeyCtrl,
                     obscureText: true,
                     decoration: const InputDecoration(
                       labelText: 'Gemini API Key',
@@ -310,22 +413,34 @@ class _GeneralConfigPageState extends State<GeneralConfigPage> {
                   ),
                   const SizedBox(height: 12),
                   TextField(
-                    controller: _modelCtrl,
+                    controller: _xaiApiKeyCtrl,
+                    obscureText: true,
                     decoration: const InputDecoration(
+                      labelText: 'xAI API Key',
+                      isDense: true,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _modelCtrl,
+                    decoration: InputDecoration(
                       labelText: 'Model',
-                      hintText: 'gemini-3.1-flash-live-preview',
+                      hintText: _defaultModel,
                       isDense: true,
                     ),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    initialValue: _voices.containsKey(_voice) ? _voice : 'Kore',
+                    key: ValueKey('voice-$_provider'),
+                    initialValue: _voiceOptions.containsKey(_voice)
+                        ? _voice
+                        : _defaultVoice,
                     decoration: const InputDecoration(
                       labelText: 'Voice',
                       isDense: true,
                     ),
                     isExpanded: true,
-                    items: _voices.entries.map((e) {
+                    items: _voiceOptions.entries.map((e) {
                       return DropdownMenuItem(
                         value: e.key,
                         child: Text(

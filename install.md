@@ -10,7 +10,8 @@ other agent tools.
 - Rooted Android device with Magisk installed
 - Flutter SDK on the build machine
 - Android SDK platform tools and a working `adb`
-- Gemini API key
+- Gemini API key, xAI API key, or both
+- Go 1.22+ for the USB installer/configuration tool
 
 ## Build
 
@@ -24,7 +25,40 @@ powershell -File build_magisk.ps1
 
 This creates `PocketDaemon-magisk.zip` in the repository root.
 
-## Configure
+## Install and Configure with USB
+
+From the repository root:
+
+```powershell
+cd tools/pocketdaemonctl
+go run . doctor
+go run . install
+```
+
+`install` checks ADB authorization, root, Magisk, pushes the module zip to
+`/sdcard/Download/`, attempts Magisk command-line installation, waits for reboot,
+then launches the setup flow. If Magisk command-line installation is unavailable,
+install the pushed zip manually from the Magisk app and reboot.
+
+Run setup directly any time:
+
+```powershell
+go run . setup
+```
+
+The setup command opens a localhost browser editor, pulls `/sdcard/PocketDaemon/`
+over USB, and writes changes back to the phone. It manages the voice provider,
+Gemini/xAI API keys, model, voice, owner identity, `CALL_PROMPT.md`,
+`memory/SOUL.md`, trusted contacts, skills, scheduled tasks, and advanced memory
+files.
+
+Non-interactive setup is supported:
+
+```powershell
+go run . setup --provider xai --api-key "$env:XAI_API_KEY" --model grok-voice-think-fast-1.0 --voice eve --apply
+```
+
+## Manual Sideload Configuration
 
 Copy `pocketdaemon_config.example.json` to `pocketdaemon_config.json`, fill in your
 local values, then push it to the device:
@@ -36,13 +70,13 @@ adb push pocketdaemon_config.json /sdcard/Download/
 The app imports the supported keys on launch and deletes the sideload file after
 the merge.
 
-## Install
+## Backup and Restore
 
 ```powershell
-adb push PocketDaemon-magisk.zip /sdcard/Download/
+cd tools/pocketdaemonctl
+go run . backup --out pocketdaemon-backup.zip
+go run . restore pocketdaemon-backup.zip
 ```
-
-Then open Magisk, install the module from storage, and reboot.
 
 ## Update
 

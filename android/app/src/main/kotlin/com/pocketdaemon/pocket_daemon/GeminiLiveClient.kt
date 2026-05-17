@@ -8,30 +8,24 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-class GeminiLiveClient(
+class GeminiVoiceSessionClient(
     private val apiKey: String,
     private val model: String,
     private val systemPrompt: String,
     private val voice: String? = null,
-    private val tools: List<ToolDeclaration> = emptyList(),
+    private val tools: List<ToolSpec> = emptyList(),
     private val googleSearch: Boolean = false,
     private val resumeHandle: String? = null,
-    @Volatile var onAgentAudio: (ByteArray) -> Unit,
+    @Volatile override var onAgentAudio: (ByteArray) -> Unit,
     private val onTranscript: (speaker: String, text: String) -> Unit,
     private val onToolCall: ((name: String, id: String, args: JSONObject) -> JSONObject)? = null,
     private val onTurnComplete: (() -> Unit)? = null,
     private val onInterrupted: (() -> Unit)? = null,
     private val onReady: (() -> Unit)? = null,
     private val onSessionEnded: (reason: String?) -> Unit,
-) {
-    data class ToolDeclaration(
-        val name: String,
-        val description: String,
-        val parameters: JSONObject? = null,
-    )
-
+) : VoiceSessionClient {
     companion object {
-        private const val TAG = "GeminiLiveClient"
+        private const val TAG = "GeminiVoiceSessionClient"
         private const val BASE_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
     }
 
@@ -40,15 +34,15 @@ class GeminiLiveClient(
         .build()
 
     @Volatile private var ws: WebSocket? = null
-    @Volatile var connected = false
+    @Volatile override var connected = false
         private set
-    @Volatile var ready = false
+    @Volatile override var ready = false
         private set
-    @Volatile var sessionHandle: String? = null
+    @Volatile override var sessionHandle: String? = null
         private set
     @Volatile private var closeReason: String? = null
 
-    fun connect() {
+    override fun connect() {
         val url = "$BASE_URL?key=$apiKey"
         Log.i(TAG, "Connecting to Gemini Live ($model)" +
                 if (resumeHandle != null) " [resuming]" else " [new session]")
@@ -92,14 +86,14 @@ class GeminiLiveClient(
         })
     }
 
-    fun disconnect() {
+    override fun disconnect() {
         connected = false
         ready = false
         ws?.close(1000, "session ended")
         ws = null
     }
 
-    fun sendAudio(pcm16k: ByteArray) {
+    override fun sendAudio(pcm16k: ByteArray) {
         if (!ready) return
         val b64 = Base64.encodeToString(pcm16k, Base64.NO_WRAP)
         val msg = JSONObject().put("realtimeInput", JSONObject()
@@ -111,7 +105,7 @@ class GeminiLiveClient(
         ws?.send(msg.toString())
     }
 
-    fun sendText(text: String) {
+    override fun sendText(text: String) {
         if (!ready) {
             Log.w(TAG, "sendText called before ready, queuing ignored")
             return
@@ -123,7 +117,7 @@ class GeminiLiveClient(
         Log.i(TAG, "Sent text: ${text.take(80)}")
     }
 
-    fun sendImage(imageBase64: String, mimeType: String, caption: String? = null) {
+    override fun sendImage(imageBase64: String, mimeType: String, caption: String?) {
         if (!ready) {
             Log.w(TAG, "sendImage called before ready")
             return
@@ -326,3 +320,5 @@ class GeminiLiveClient(
         Log.i(TAG, "Tool responses sent")
     }
 }
+
+typealias GeminiLiveClient = GeminiVoiceSessionClient
