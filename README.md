@@ -48,8 +48,11 @@ flutter build apk --release
 powershell -File build_magisk.ps1
 ```
 
-The Magisk zip is generated as `PocketDaemon-magisk.zip`. Do not commit generated
-APKs, zips, extracted firmware, local configs, recordings, notes, or skills.
+The release APK, Magisk zip, and SHA-256 checksums are generated locally under
+`releases/` with versioned filenames. Keep that directory out of git; when you
+create a public release later, attach those generated files to the release. Do
+not commit generated APKs, zips, extracted firmware, local configs, recordings,
+notes, or skills.
 
 ## Configuration
 

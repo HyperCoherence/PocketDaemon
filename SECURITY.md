@@ -11,8 +11,8 @@ Only the latest public `main` branch is expected to receive fixes.
 
 Do not open public issues for secrets, bypasses, prompt-injection paths that can
 send SMS or place calls, or bugs that expose recordings, contacts, location, or
-memory files. Report privately to the project maintainer until a dedicated
-security contact is published.
+memory files. Use GitHub private vulnerability reporting once the public
+repository is created. Until that is enabled, do not publish the repository.
 
 ## Sensitive Surfaces
 

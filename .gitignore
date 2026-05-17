@@ -33,6 +33,7 @@ android/app/build/
 *.keystore
 
 # Release and generated artifacts
+/releases/
 *.apk
 *.aab
 *.apks
@@ -48,7 +49,7 @@ magisk/system/priv-app/
 download/
 factory_extract/
 image_extract/
-skills/
+/skills/
 
 # Local configuration and secrets
 pocketdaemon_config.json

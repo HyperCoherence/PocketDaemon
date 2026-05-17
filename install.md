@@ -23,7 +23,14 @@ flutter build apk --release
 powershell -File build_magisk.ps1
 ```
 
-This creates `PocketDaemon-magisk.zip` in the repository root.
+This creates versioned release artifacts under `releases/`:
+
+- `PocketDaemon-<version>-<versionCode>.apk`
+- `PocketDaemon-<version>-<versionCode>-magisk.zip`
+- `SHA256SUMS.txt`
+
+Keep `releases/` out of git. Attach these files to a GitHub Release later; do
+not commit binary release artifacts to the repository.
 
 ## Install and Configure with USB
 
