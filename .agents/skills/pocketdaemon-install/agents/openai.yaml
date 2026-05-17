@@ -1,0 +1,7 @@
+interface:
+  display_name: "PocketDaemon Install"
+  short_description: "Build and install PocketDaemon on rooted Android"
+  default_prompt: "Use $pocketdaemon-install to build, install, verify, or troubleshoot PocketDaemon on a rooted Android device."
+
+policy:
+  allow_implicit_invocation: true

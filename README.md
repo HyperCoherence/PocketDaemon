@@ -61,12 +61,13 @@ The app stores runtime data under `/sdcard/PocketDaemon/`. For provisioning, cop
 values, and place it in `/sdcard/Download/` before launching the app. The app
 imports supported keys and deletes the sideload file after a successful merge.
 
-The easier first-run path is the USB tool:
+The USB tool is intended to be the easier first-run path, but it is currently
+experimental and has not yet been validated end to end on a device:
 
 ```powershell
 cd tools/pocketdaemonctl
 go run . doctor
-go run . install
+go run . install --module-zip ..\..\releases\PocketDaemon-<version>-<versionCode>-magisk.zip
 go run . setup
 ```
 

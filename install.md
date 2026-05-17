@@ -34,12 +34,16 @@ not commit binary release artifacts to the repository.
 
 ## Install and Configure with USB
 
+`tools/pocketdaemonctl` is currently experimental and has not yet been validated
+end to end on a device. Run `doctor` first, pass the versioned module zip
+explicitly, and fall back to manual Magisk installation if the tool fails.
+
 From the repository root:
 
 ```powershell
 cd tools/pocketdaemonctl
 go run . doctor
-go run . install
+go run . install --module-zip ..\..\releases\PocketDaemon-<version>-<versionCode>-magisk.zip
 ```
 
 `install` checks ADB authorization, root, Magisk, pushes the module zip to
