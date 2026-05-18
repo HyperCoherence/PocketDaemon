@@ -1,5 +1,7 @@
 # PocketDaemon
 
+![PocketDaemon: talk to your phone agent](docs/social/pocketdaemon-hero.png)
+
 PocketDaemon is an experimental Android-native AI agent that can answer and place
 phone calls, run live voice/chat sessions, use phone tools, keep local memory,
 take notes, schedule tasks, and run extensible skills.
