@@ -4,6 +4,9 @@ import org.json.JSONObject
 
 /** Live API function-call behaviors. */
 object ToolBehavior {
+    /** The model waits for the result before continuing. gemini-3.8-live no longer assumes this, so it is declared. */
+    const val BLOCKING = "BLOCKING"
+
     /** The model keeps talking while the tool runs; the result is delivered per [ToolScheduling]. */
     const val NON_BLOCKING = "NON_BLOCKING"
 }
@@ -28,7 +31,7 @@ data class ToolSpec(
     val name: String,
     val description: String,
     val parameters: JSONObject? = null,
-    /** [ToolBehavior.NON_BLOCKING], or null for the default blocking call. */
+    /** [ToolBehavior.BLOCKING] or [ToolBehavior.NON_BLOCKING]; null leaves the choice to the model's default. */
     val behavior: String? = null,
     /** [ToolScheduling] hint attached to a NON_BLOCKING result. INTERRUPT when omitted. */
     val scheduling: String? = null,

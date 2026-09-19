@@ -88,13 +88,18 @@ object AgentToolRegistry {
      */
     private val NON_BLOCKING_TOOLS = setOf(ASK_EXPERT, ASK_FABLE, TAKE_PHOTO, USE_SKILL, GET_LOCATION)
 
+    /**
+     * Live declarations always state a behavior. The gemini-3.8-live migration guide makes NON_BLOCKING
+     * the default, and the fast tools (memory, notes, contacts, dialing, hang-up) are written for the
+     * model to wait on their result, so they are declared BLOCKING rather than left to the default.
+     */
     fun liveDeclarations(ownerName: String, agentType: String): List<ToolSpec> {
         return toolNames(agentType).mapNotNull { name ->
             declaration(ownerName, agentType, name)?.let { spec ->
                 if (name in NON_BLOCKING_TOOLS) {
                     spec.copy(behavior = ToolBehavior.NON_BLOCKING, scheduling = ToolScheduling.WHEN_IDLE)
                 } else {
-                    spec
+                    spec.copy(behavior = ToolBehavior.BLOCKING)
                 }
             }
         }
