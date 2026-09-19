@@ -223,12 +223,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           final callerLabel = callerName.isNotEmpty
               ? '$callerName${trusted ? ' (trusted)' : ''}'
               : event['number']?.toString() ?? '';
-          _callStatus = 'Call active: $callerLabel';
+          _callStatus = 'Agent handling: $callerLabel';
           _takenOver = false;
           _addLog('Call answered: $callerLabel');
         case 'callTakenOver':
           _takenOver = true;
-          _callStatus = 'On call: ${event['number']}';
+          _callStatus = 'You are on call: ${event['number']}';
           _addLog('Took over call: ${event['number']}');
         case 'callEnded':
           _callStatus = '';
@@ -239,7 +239,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         case 'transcript':
           final speaker = event['speaker']?.toString() ?? '';
           final text = event['text']?.toString() ?? '';
-          if (_transcript.isNotEmpty && _transcript.last.speaker == speaker) {
+          if (_transcript.isNotEmpty &&
+              _transcript.last.speaker == speaker &&
+              _transcript.last.imagePath == null) {
             _transcript.last.text += ' $text';
           } else {
             _transcript.add(TranscriptLine(speaker, text));
@@ -279,6 +281,18 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             _loadSessions();
           }
           _addLog('Chat: turn complete');
+        case 'chatInteractionStatus':
+          final status = event['status']?.toString() ?? '';
+          final live =
+              _chatState == ChatState.conversing ||
+              _chatState == ChatState.waiting;
+          if (status == 'IN_PROGRESS' && live) {
+            _chatState = ChatState.waiting;
+          } else if (status == 'REQUIRES_ACTION' &&
+              _chatState == ChatState.waiting &&
+              _chatMode == ChatMode.conversation) {
+            _chatState = ChatState.conversing;
+          }
         case 'chatEnded':
           _chatState = ChatState.idle;
           _setKeepScreenOn(false);
@@ -293,13 +307,22 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         case 'chatTranscript':
           final speaker = event['speaker']?.toString() ?? '';
           final text = event['text']?.toString() ?? '';
-          if (_transcript.isNotEmpty && _transcript.last.speaker == speaker) {
+          if (_transcript.isNotEmpty &&
+              _transcript.last.speaker == speaker &&
+              _transcript.last.imagePath == null) {
             _transcript.last.text += ' $text';
           } else {
             _transcript.add(TranscriptLine(speaker, text));
             if (_transcript.length > 50) _transcript.removeAt(0);
           }
           _addLog('Chat $speaker: $text');
+        case 'chatPhoto':
+          final path = event['path']?.toString() ?? '';
+          _transcript.add(
+            TranscriptLine('user', 'Photo shared', imagePath: path),
+          );
+          if (_transcript.length > 50) _transcript.removeAt(0);
+          _addLog('Chat: photo shared');
         case 'textChatReady':
           _textChatActive = true;
           _textChatWaiting = false;
@@ -436,11 +459,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     String imageBase64,
     String mimeType,
     String? caption,
+    String? path,
   ) async {
     await _control.invokeMethod('sendVoiceImage', <String, dynamic>{
       'imageBase64': imageBase64,
       'imageMimeType': mimeType,
       if (caption != null && caption.isNotEmpty) 'caption': caption,
+      'path': ?path,
     });
   }
 
@@ -507,6 +532,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       onTakeOver: _takeOverCall,
                       onHangUp: _hangUpCall,
                       onSendImage: _sendVoiceImage,
+                      control: _control,
                     ),
                     ChatPage(
                       messages: _chatMessages,

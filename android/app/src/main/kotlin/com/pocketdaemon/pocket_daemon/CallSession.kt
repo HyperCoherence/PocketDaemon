@@ -154,8 +154,8 @@ class CallSession(
             recorder?.writeCaptureAudio(capturedPcm)
         }
 
-        gemini?.connect()
         audioHandler?.start()
+        gemini?.connect()
 
         Log.i(TAG, "Session active: audio + ${voiceConfig.provider} voice (recording=${recorder != null})")
     }
@@ -180,9 +180,9 @@ class CallSession(
             Thread {
                 try {
                     val extractor = MemoryExtractor(context)
-                    val newFacts = extractor.extract(transcript, logName, app.apiKey)
+                    val newFacts = extractor.extract(transcript, logName)
                     extractor.refreshIndex()
-                    if (newFacts > 0) extractor.compactMemory(app.apiKey)
+                    if (newFacts > 0) extractor.compactMemory()
                 } catch (e: Exception) {
                     Log.w(TAG, "Memory extraction failed: ${e.message}")
                 }

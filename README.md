@@ -30,6 +30,8 @@ material risk.
 - Scheduled tasks
 - Skills loaded from Markdown files
 - Provider-selectable realtime voice through Gemini or xAI
+- Text chat, expert advisor, scheduled tasks, and memory on Gemini, xAI, or Claude
+- "Ask Fable": consult Claude Fable 5.1 with live web search from a conversation
 - Optional provider search grounding through Gemini or xAI voice sessions
 
 See [FEATURES.md](FEATURES.md) for the full current feature list.
@@ -39,7 +41,7 @@ See [FEATURES.md](FEATURES.md) for the full current feature list.
 - Rooted Android device with Magisk
 - Flutter SDK
 - Android SDK / platform tools
-- A Gemini API key, xAI API key, or both
+- A Gemini API key, xAI API key, or both; an Anthropic API key for Claude and the Ask Fable tool
 - A device and jurisdiction where call handling/recording behavior is lawful
 
 ## Build

@@ -1,9 +1,8 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:image_picker/image_picker.dart';
 import '../models.dart';
 import '../theme/tokens.dart';
 import '../widgets/breathing_dot.dart';
@@ -11,6 +10,7 @@ import '../widgets/agent_orb.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/agent_presence_chip.dart';
 import '../widgets/agent_edge_glow.dart';
+import 'camera_viewfinder_page.dart';
 
 class HomePage extends StatefulWidget {
   final bool agentEnabled;
@@ -29,8 +29,8 @@ class HomePage extends StatefulWidget {
   final VoidCallback onEndConversation;
   final VoidCallback onTakeOver;
   final VoidCallback onHangUp;
-  final void Function(String imageBase64, String mimeType, String? caption)
-  onSendImage;
+  final VoiceImageSender onSendImage;
+  final MethodChannel control;
 
   const HomePage({
     super.key,
@@ -51,6 +51,7 @@ class HomePage extends StatefulWidget {
     required this.onTakeOver,
     required this.onHangUp,
     required this.onSendImage,
+    required this.control,
   });
 
   @override
@@ -62,7 +63,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
 
   late final AnimationController _pulseCtrl;
   late final AnimationController _orbCtrl;
-  final _picker = ImagePicker();
 
   @override
   void initState() {
@@ -98,116 +98,28 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _showImagePicker() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: PremiumTokens.surfaceSolid,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(
-          top: Radius.circular(PremiumTokens.radiusXl),
-        ),
-      ),
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(
-                  Icons.camera_alt_rounded,
-                  color: PremiumTokens.accentPrimary,
-                ),
-                title: const Text('Camera'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickAndSend(ImageSource.camera);
-                },
-              ),
-              ListTile(
-                leading: const Icon(
-                  Icons.photo_library_rounded,
-                  color: PremiumTokens.accentPrimary,
-                ),
-                title: const Text('Photo Library'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickAndSend(ImageSource.gallery);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  /// The camera needs a live session to send into. Conversation mode can start
+  /// one on demand; push-to-talk only has a session while a turn is under way.
+  bool get _cameraAvailable =>
+      widget.callStatus.isEmpty &&
+      (widget.chatState != ChatState.idle ||
+          widget.chatMode == ChatMode.conversation);
 
-  Future<void> _pickAndSend(ImageSource source) async {
-    final xfile = await _picker.pickImage(
-      source: source,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      imageQuality: 85,
-    );
-    if (xfile == null) return;
-    final bytes = await File(xfile.path).readAsBytes();
-    final b64 = base64Encode(bytes);
-    final mime = xfile.path.toLowerCase().endsWith('.png')
-        ? 'image/png'
-        : 'image/jpeg';
-    if (!mounted) return;
-    _showCaptionDialog(b64, mime);
-  }
-
-  void _showCaptionDialog(String b64, String mime) {
-    final captionCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(
-          'Send image',
-          style: TextStyle(fontFamily: 'Syne', fontSize: 16),
+  Future<void> _openCamera() async {
+    if (!_cameraAvailable) return;
+    HapticFeedback.lightImpact();
+    if (widget.chatState == ChatState.idle) {
+      // Connect now so the photo goes out the moment the session is ready.
+      widget.onStartChat();
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => CameraViewfinderPage(
+          control: widget.control,
+          agentName: widget.agentName,
+          onSendImage: widget.onSendImage,
         ),
-        content: TextField(
-          controller: captionCtrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Add a caption (optional)',
-          ),
-          onSubmitted: (_) {
-            Navigator.pop(ctx);
-            widget.onSendImage(
-              b64,
-              mime,
-              captionCtrl.text.trim().isEmpty ? null : captionCtrl.text.trim(),
-            );
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: PremiumTokens.textMuted),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              widget.onSendImage(
-                b64,
-                mime,
-                captionCtrl.text.trim().isEmpty
-                    ? null
-                    : captionCtrl.text.trim(),
-              );
-            },
-            child: const Text(
-              'Send',
-              style: TextStyle(color: PremiumTokens.accentPrimary),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -290,28 +202,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             ),
             if (widget.callStatus.isNotEmpty)
               _buildCallControls(context)
-            else ...[
-              if (widget.chatState != ChatState.idle)
-                Padding(
-                  padding: const EdgeInsets.only(right: 24, bottom: 4),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.camera_alt_rounded,
-                        color: PremiumTokens.textMuted,
-                        size: 22,
-                      ),
-                      onPressed: _showImagePicker,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  ),
-                ),
-              widget.chatMode == ChatMode.conversation
-                  ? _buildConversationButton(context)
-                  : _buildPushToTalk(context),
-            ],
+            else
+              _buildVoiceControls(context),
             const SizedBox(height: 12),
           ],
         ),
@@ -621,19 +513,134 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         ),
                         const SizedBox(width: 8),
                         Expanded(
-                          child: Text(
-                            line.text,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: PremiumTokens.textSecondary,
-                              height: 1.3,
-                            ),
-                          ),
+                          child: line.imagePath != null
+                              ? _buildPhotoLine(line)
+                              : Text(
+                                  line.text,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: PremiumTokens.textSecondary,
+                                    height: 1.3,
+                                  ),
+                                ),
                         ),
                       ],
                     ),
                   );
                 },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPhotoLine(TranscriptLine line) {
+    return Row(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(PremiumTokens.radiusSm),
+          child: Image.file(
+            File(line.imagePath!),
+            width: 64,
+            height: 48,
+            fit: BoxFit.cover,
+            cacheWidth: 192,
+            errorBuilder: (_, _, _) => Container(
+              width: 64,
+              height: 48,
+              color: PremiumTokens.surfaceGlass,
+              child: const Icon(
+                Icons.broken_image_outlined,
+                size: 16,
+                color: PremiumTokens.textMuted,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            line.text,
+            style: const TextStyle(
+              fontSize: 12,
+              color: PremiumTokens.textSecondary,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The talk orb stays centred; the camera sits beside it so showing something
+  /// is one tap away while talking.
+  Widget _buildVoiceControls(BuildContext context) {
+    final orb = widget.chatMode == ChatMode.conversation
+        ? _buildConversationButton(context)
+        : _buildPushToTalk(context);
+    return Row(
+      children: [
+        const Expanded(child: SizedBox()),
+        orb,
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: _buildCameraButton(context),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCameraButton(BuildContext context) {
+    final enabled = _cameraAvailable;
+    final color = enabled
+        ? PremiumTokens.accentPrimary
+        : PremiumTokens.textMuted;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: 'Show something with the camera',
+      child: GestureDetector(
+        onTap: enabled ? _openCamera : null,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedContainer(
+              duration: PremiumTokens.durationNormal,
+              curve: PremiumTokens.easeSpring,
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withAlpha(enabled ? 24 : 10),
+                border: Border.all(
+                  color: color.withAlpha(enabled ? 140 : 50),
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withAlpha(enabled ? 40 : 0),
+                    blurRadius: 16,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: Icon(Icons.photo_camera_rounded, color: color, size: 24),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Camera',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.4,
+                color: color.withAlpha(enabled ? 220 : 120),
               ),
             ),
           ],
@@ -742,12 +749,27 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     ),
                   ),
                   const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      "You're on the call",
+                      style: TextStyle(
+                        color: PremiumTokens.accentPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.mic_rounded,
+                    size: 16,
+                    color: PremiumTokens.accentPrimary,
+                  ),
+                  const SizedBox(width: 4),
                   const Text(
-                    "You're on the call",
+                    'Mic live',
                     style: TextStyle(
-                      color: PremiumTokens.accentPrimary,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
+                      color: PremiumTokens.textMuted,
                     ),
                   ),
                 ],
@@ -803,7 +825,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   ),
                 ),
                 const Text(
-                  'On speaker',
+                  'Your mic muted',
                   style: TextStyle(
                     fontSize: 11,
                     color: PremiumTokens.textMuted,
@@ -811,7 +833,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
                 const SizedBox(width: 4),
                 const Icon(
-                  Icons.volume_up_rounded,
+                  Icons.mic_off_rounded,
                   size: 16,
                   color: PremiumTokens.textMuted,
                 ),
@@ -826,7 +848,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               onPressed: widget.onTakeOver,
               icon: const Icon(Icons.phone_forwarded_rounded),
               label: const Text(
-                'Take Over Call',
+                'Take Over - Unmute Mic',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
               ),
               style: FilledButton.styleFrom(

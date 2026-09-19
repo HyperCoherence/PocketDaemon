@@ -25,8 +25,15 @@ class PocketDaemonApp : Application() {
 
         const val DEFAULT_API_KEY = ""
         const val DEFAULT_VOICE_PROVIDER = ProviderIds.GEMINI
-        const val DEFAULT_MODEL = "gemini-3.1-flash-live-preview"
+        const val DEFAULT_MODEL = GeminiModels.DEFAULT_LIVE
+        const val DEFAULT_REASONING_MODEL = GeminiModels.DEFAULT_REASONING
         const val DEFAULT_XAI_MODEL = "grok-voice-think-fast-1.0"
+        const val DEFAULT_THINKING_LEVEL = GeminiModels.DEFAULT_THINKING_LEVEL
+        const val DEFAULT_XAI_TEXT_MODEL = "grok-4.6"
+        const val DEFAULT_ANTHROPIC_MODEL = "claude-opus-5"
+        const val DEFAULT_FABLE_MODEL = "claude-fable-5-1"
+        const val DEFAULT_FABLE_EFFORT = "medium"
+        val EFFORT_LEVELS = listOf("low", "medium", "high")
         private val LEGACY_XAI_MODELS = setOf("grok-voice-fast-1.0")
         fun defaultSystemPrompt(ownerName: String): String {
             val owner = ownerName.ifBlank { "the phone owner" }
@@ -171,8 +178,13 @@ class PocketDaemonApp : Application() {
         val normalizedRole = if (role in AgentRoles.ALL) role else AgentRoles.VOICE
         val agents = cachedConfig.optJSONObject("agents") ?: JSONObject()
         val obj = agents.optJSONObject(normalizedRole) ?: JSONObject()
-        val provider = obj.optString("provider", ProviderIds.GEMINI).normalizeProviderId()
-        val model = obj.optString("model", defaultModelFor(provider, normalizedRole)).ifBlank {
+        val configuredProvider = obj.optString("provider", defaultProviderFor(normalizedRole)).normalizeProviderId()
+        val provider = effectiveProviderLocked(normalizedRole, configuredProvider)
+        val model = if (provider == configuredProvider) {
+            obj.optString("model", defaultModelFor(provider, normalizedRole)).ifBlank {
+                defaultModelFor(provider, normalizedRole)
+            }
+        } else {
             defaultModelFor(provider, normalizedRole)
         }
         val voice = if (normalizedRole == AgentRoles.VOICE) {
@@ -180,13 +192,47 @@ class PocketDaemonApp : Application() {
         } else {
             obj.optString("voice", "")
         }
+        // Thinking is opt-in; only Gemini live sessions honor it and only when "thinking" is true.
+        val thinkingLevel = if (
+            normalizedRole == AgentRoles.VOICE &&
+            provider == ProviderIds.GEMINI &&
+            obj.optBoolean("thinking", false)
+        ) {
+            GeminiModels.normalizeThinkingLevel(obj.optString("thinkingLevel", DEFAULT_THINKING_LEVEL))
+                ?: DEFAULT_THINKING_LEVEL
+        } else {
+            null
+        }
+        val effort = if (normalizedRole == AgentRoles.VOICE) {
+            null
+        } else {
+            obj.optString("effort", "").trim().lowercase().takeIf { it in EFFORT_LEVELS }
+                ?: if (normalizedRole == AgentRoles.FABLE) DEFAULT_FABLE_EFFORT else null
+        }
         ProviderConfig(
             role = normalizedRole,
             provider = provider,
             model = model,
             voice = voice,
             apiKey = providerApiKeyLocked(provider),
+            thinkingLevel = thinkingLevel,
+            effort = effort,
         )
+    }
+
+    private fun defaultProviderFor(role: String): String =
+        if (role == AgentRoles.FABLE) ProviderIds.ANTHROPIC else ProviderIds.GEMINI
+
+    /**
+     * Reasoning roles run on whichever provider actually has a key, so an xAI-only or
+     * Anthropic-only setup still gets text chat, memory extraction, and scheduled tasks.
+     */
+    private fun effectiveProviderLocked(role: String, configured: String): String {
+        if (role == AgentRoles.VOICE || role == AgentRoles.FABLE) return configured
+        if (providerApiKeyLocked(configured).isNotBlank()) return configured
+        return listOf(ProviderIds.GEMINI, ProviderIds.ANTHROPIC, ProviderIds.XAI)
+            .firstOrNull { providerApiKeyLocked(it).isNotBlank() }
+            ?: configured
     }
 
     fun providerConfigMap(): Map<String, Map<String, String>> = synchronized(configLock) {
@@ -194,17 +240,29 @@ class PocketDaemonApp : Application() {
         mapOf(
             ProviderIds.GEMINI to mapOf("apiKey" to providerApiKeyLocked(ProviderIds.GEMINI)),
             ProviderIds.XAI to mapOf("apiKey" to providerApiKeyLocked(ProviderIds.XAI)),
+            ProviderIds.ANTHROPIC to mapOf("apiKey" to providerApiKeyLocked(ProviderIds.ANTHROPIC)),
         )
     }
 
-    fun agentConfigMap(): Map<String, Map<String, String>> = synchronized(configLock) {
+    fun agentConfigMap(): Map<String, Map<String, Any>> = synchronized(configLock) {
         normalizeProviderSchemaLocked(cachedConfig)
+        val agents = cachedConfig.optJSONObject("agents") ?: JSONObject()
         AgentRoles.ALL.associateWith { role ->
             val cfg = agentConfig(role)
-            buildMap {
+            buildMap<String, Any> {
                 put("provider", cfg.provider)
                 put("model", cfg.model)
                 cfg.voice?.takeIf { it.isNotBlank() }?.let { put("voice", it) }
+                cfg.effort?.let { put("effort", it) }
+                if (role == AgentRoles.VOICE) {
+                    val obj = agents.optJSONObject(role) ?: JSONObject()
+                    put("thinking", obj.optBoolean("thinking", false))
+                    put(
+                        "thinkingLevel",
+                        GeminiModels.normalizeThinkingLevel(obj.optString("thinkingLevel", ""))
+                            ?: DEFAULT_THINKING_LEVEL,
+                    )
+                }
             }
         }
     }
@@ -217,6 +275,7 @@ class PocketDaemonApp : Application() {
         voice: String?,
         geminiApiKey: String?,
         xaiApiKey: String?,
+        anthropicApiKey: String? = null,
     ) = synchronized(configLock) {
         normalizeProviderSchemaLocked(cachedConfig)
         val providersObj = cachedConfig.optJSONObject("providers") ?: JSONObject().also {
@@ -229,6 +288,7 @@ class PocketDaemonApp : Application() {
         mergeProviders(providersObj, providers)
         if (geminiApiKey != null) providerObj(providersObj, ProviderIds.GEMINI).put("apiKey", geminiApiKey)
         if (xaiApiKey != null) providerObj(providersObj, ProviderIds.XAI).put("apiKey", xaiApiKey)
+        if (anthropicApiKey != null) providerObj(providersObj, ProviderIds.ANTHROPIC).put("apiKey", anthropicApiKey)
 
         mergeAgents(agentsObj, agents)
         val voiceObj = agentsObj.optJSONObject(AgentRoles.VOICE) ?: JSONObject().also {
@@ -255,6 +315,7 @@ class PocketDaemonApp : Application() {
         return when (provider.normalizeProviderId()) {
             ProviderIds.GEMINI -> cachedConfig.optString("apiKey", DEFAULT_API_KEY)
             ProviderIds.XAI -> cachedConfig.optString("xaiApiKey", "")
+            ProviderIds.ANTHROPIC -> cachedConfig.optString("anthropicApiKey", "")
             else -> ""
         }
     }
@@ -276,6 +337,11 @@ class PocketDaemonApp : Application() {
             xaiProvider.put("apiKey", json.optString("xaiApiKey", ""))
             changed = true
         }
+        val anthropicProvider = providerObj(providers, ProviderIds.ANTHROPIC)
+        if (!anthropicProvider.has("apiKey")) {
+            anthropicProvider.put("apiKey", json.optString("anthropicApiKey", ""))
+            changed = true
+        }
 
         val agents = json.optJSONObject("agents") ?: JSONObject().also {
             json.put("agents", it)
@@ -288,14 +354,26 @@ class PocketDaemonApp : Application() {
             model = json.optString("model", ""),
             voice = json.optString("voice", ""),
         ) || changed
-        for (role in listOf(AgentRoles.EXPERT, AgentRoles.SCHEDULER, AgentRoles.MEMORY)) {
+        for (role in AgentRoles.REASONING) {
             changed = ensureAgentLocked(
                 agents,
                 role = role,
                 provider = ProviderIds.GEMINI,
-                model = json.optString("${role}Model", DEFAULT_MODEL),
+                model = json.optString("${role}Model", ""),
                 voice = null,
             ) || changed
+        }
+        changed = ensureAgentLocked(
+            agents,
+            role = AgentRoles.FABLE,
+            provider = ProviderIds.ANTHROPIC,
+            model = "",
+            voice = null,
+        ) || changed
+        val fable = agents.optJSONObject(AgentRoles.FABLE)
+        if (fable != null && fable.optString("effort", "").trim().lowercase() !in EFFORT_LEVELS) {
+            fable.put("effort", DEFAULT_FABLE_EFFORT)
+            changed = true
         }
         return changed
     }
@@ -312,7 +390,10 @@ class PocketDaemonApp : Application() {
             agents.put(role, it)
             changed = true
         }
-        val normalizedProvider = obj.optString("provider", provider).normalizeProviderId()
+        var normalizedProvider = obj.optString("provider", provider).normalizeProviderId()
+        // Anthropic has no realtime voice here, and Fable is always Claude.
+        if (role == AgentRoles.VOICE && normalizedProvider == ProviderIds.ANTHROPIC) normalizedProvider = ProviderIds.GEMINI
+        if (role == AgentRoles.FABLE) normalizedProvider = ProviderIds.ANTHROPIC
         if (obj.optString("provider", "") != normalizedProvider) {
             obj.put("provider", normalizedProvider)
             changed = true
@@ -360,17 +441,26 @@ class PocketDaemonApp : Application() {
             map["provider"]?.let { obj.put("provider", it.toString().normalizeProviderId()) }
             map["model"]?.let { obj.put("model", it.toString()) }
             map["voice"]?.let { obj.put("voice", it.toString()) }
+            map["thinking"]?.let { obj.put("thinking", it.toString().toBoolean()) }
+            map["thinkingLevel"]?.let { obj.put("thinkingLevel", it.toString()) }
+            map["effort"]?.let { obj.put("effort", it.toString().trim().lowercase()) }
         }
     }
 
-    private fun String.normalizeProviderId(): String =
-        lowercase().trim().let { if (it == ProviderIds.XAI) ProviderIds.XAI else ProviderIds.GEMINI }
+    private fun String.normalizeProviderId(): String = when (lowercase().trim()) {
+        ProviderIds.XAI -> ProviderIds.XAI
+        ProviderIds.ANTHROPIC, "claude" -> ProviderIds.ANTHROPIC
+        else -> ProviderIds.GEMINI
+    }
 
     private fun defaultModelFor(provider: String, role: String): String {
-        return if (role == AgentRoles.VOICE && provider.normalizeProviderId() == ProviderIds.XAI) {
-            DEFAULT_XAI_MODEL
-        } else {
-            DEFAULT_MODEL
+        val normalizedProvider = provider.normalizeProviderId()
+        return when {
+            role == AgentRoles.VOICE -> if (normalizedProvider == ProviderIds.XAI) DEFAULT_XAI_MODEL else DEFAULT_MODEL
+            role == AgentRoles.FABLE -> DEFAULT_FABLE_MODEL
+            normalizedProvider == ProviderIds.XAI -> DEFAULT_XAI_TEXT_MODEL
+            normalizedProvider == ProviderIds.ANTHROPIC -> DEFAULT_ANTHROPIC_MODEL
+            else -> DEFAULT_REASONING_MODEL
         }
     }
 
@@ -378,13 +468,19 @@ class PocketDaemonApp : Application() {
         val normalizedProvider = provider.normalizeProviderId()
         val trimmedModel = model.trim()
         if (trimmedModel.isBlank()) return true
-        if (role == AgentRoles.VOICE && normalizedProvider == ProviderIds.XAI) {
-            return trimmedModel in LEGACY_XAI_MODELS || trimmedModel.startsWith("gemini-")
+        if (role == AgentRoles.VOICE) {
+            if (normalizedProvider == ProviderIds.XAI) {
+                return trimmedModel in LEGACY_XAI_MODELS || trimmedModel.startsWith("gemini-") || trimmedModel.startsWith("claude-")
+            }
+            return trimmedModel.startsWith("grok-") || trimmedModel.startsWith("claude-") || trimmedModel in GeminiModels.LEGACY_LIVE
         }
-        if (normalizedProvider == ProviderIds.GEMINI) {
-            return trimmedModel.startsWith("grok-voice-")
+        // Reasoning roles run over REST: the model must be a text model from the provider's own family.
+        if (GeminiModels.isLiveModel(trimmedModel) || trimmedModel.startsWith("grok-voice-")) return true
+        return when (normalizedProvider) {
+            ProviderIds.XAI -> !trimmedModel.startsWith("grok-")
+            ProviderIds.ANTHROPIC -> !trimmedModel.startsWith("claude-")
+            else -> !trimmedModel.startsWith("gemini-")
         }
-        return false
     }
 
     private fun defaultVoiceFor(provider: String): String {
@@ -623,6 +719,7 @@ class PocketDaemonApp : Application() {
         "agents",
         "voiceProvider",
         "xaiApiKey",
+        "anthropicApiKey",
         "ownerName",
         "agentName",
         "agentRole",

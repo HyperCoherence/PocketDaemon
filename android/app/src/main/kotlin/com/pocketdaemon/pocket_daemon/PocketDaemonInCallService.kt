@@ -33,6 +33,7 @@ class PocketDaemonInCallService : InCallService() {
     private var savedCallVolume = -1
     private var outboundBridgedCall: Call? = null
     private var pendingAnswer: Runnable? = null
+    private val takenOverCalls = HashSet<Call>()
 
     private var phoneRecorder: AudioRecorder? = null
     private var phoneAudioRecord: AudioRecord? = null
@@ -195,6 +196,11 @@ class PocketDaemonInCallService : InCallService() {
                     restoreCallVolume()
                     app.outboundBridge?.onOutboundCallEnded()
                     app.outboundBridge = null
+                } else if (takenOverCalls.remove(call)) {
+                    Log.i(TAG, "Taken-over call disconnected: $number")
+                    setMuted(false)
+                    restoreCallVolume()
+                    app.emitEvent("callEnded", mapOf("number" to number))
                 } else {
                     val session = sessions.remove(call)
                     if (session != null) {
@@ -229,11 +235,20 @@ class PocketDaemonInCallService : InCallService() {
         Log.i(TAG, "Taking over call from agent")
         session.stop()
         sessions.remove(call)
+        takenOverCalls.add(call)
+        if (sessions.isEmpty()) activeCallerLabel = null
+        updateForeground()
 
         setMuted(false)
         restoreCallVolume()
         Log.i(TAG, "Mic unmuted - owner is live")
-        startPhoneCallRecording()
+        Thread({
+            session.awaitTermination()
+            Log.i(TAG, "Agent call resources released after takeover")
+            handler.post {
+                if (takenOverCalls.contains(call)) startPhoneCallRecording()
+            }
+        }, "call-takeover-cleanup").start()
 
         app.emitEvent("callTakenOver", mapOf("number" to number))
     }

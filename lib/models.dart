@@ -16,7 +16,11 @@ class TranscriptLine {
   final String speaker;
   String text;
   final DateTime timestamp;
-  TranscriptLine(this.speaker, this.text) : timestamp = DateTime.now();
+
+  /// Local file of a photo the user shared, shown as a thumbnail.
+  final String? imagePath;
+  TranscriptLine(this.speaker, this.text, {this.imagePath})
+    : timestamp = DateTime.now();
 }
 
 class ChatMessage {

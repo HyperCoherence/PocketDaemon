@@ -12,6 +12,7 @@ object VoiceSessionFactory {
         onToolCall: ((name: String, id: String, args: org.json.JSONObject) -> org.json.JSONObject)? = null,
         onTurnComplete: (() -> Unit)? = null,
         onInterrupted: (() -> Unit)? = null,
+        onInteractionStatus: ((status: String) -> Unit)? = null,
         onReady: (() -> Unit)? = null,
         onSessionEnded: (reason: String?) -> Unit,
     ): VoiceSessionClient {
@@ -39,11 +40,13 @@ object VoiceSessionFactory {
                 tools = tools,
                 googleSearch = googleSearch,
                 resumeHandle = resumeHandle,
+                thinkingLevel = config.thinkingLevel,
                 onAgentAudio = onAgentAudio,
                 onTranscript = onTranscript,
                 onToolCall = onToolCall,
                 onTurnComplete = onTurnComplete,
                 onInterrupted = onInterrupted,
+                onInteractionStatus = onInteractionStatus,
                 onReady = onReady,
                 onSessionEnded = onSessionEnded,
             )

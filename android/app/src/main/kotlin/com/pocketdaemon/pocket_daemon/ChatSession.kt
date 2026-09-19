@@ -9,9 +9,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.ContactsContract
 import android.util.Log
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -19,6 +16,8 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import android.util.Base64
+import java.io.File
 
 /**
  * Chat session supporting PTT and continuous conversation modes.
@@ -37,7 +36,10 @@ class ChatSession(
         private const val IDLE_TIMEOUT_MS = 60_000L
         private const val CONVERSATION_IDLE_TIMEOUT_MS = 180_000L
         private const val APP_SWITCH_IDLE_TIMEOUT_MS = 45_000L
-        private const val EXPERT_MODEL = "gemini-3.1-pro-preview"
+
+        /** Realtime text sent right after a shared photo so the model reacts to it as something the owner is showing. */
+        private const val PHOTO_PROMPT = "Here is a photo I just took with my phone camera to show you something. " +
+            "Look at it and respond to what you see."
 
         private fun stringParam(name: String, desc: String) = JSONObject()
             .put("type", "object")
@@ -174,7 +176,7 @@ class ChatSession(
     private val memoryManager = MemoryManager(context)
     private val handler = Handler(Looper.getMainLooper())
     private val toolExecutor by lazy {
-        AgentToolExecutor(context, "chat", "voice") { appSwitchedShortTimeout = true }
+        AgentToolExecutor(context, "chat", "voice", recentTranscript = { sessionLog?.getTranscript() }) { appSwitchedShortTimeout = true }
     }
 
     private var gemini: VoiceSessionClient? = null
@@ -190,6 +192,11 @@ class ChatSession(
     private var searchQuotaExhausted = false
     @Volatile private var appSwitchedShortTimeout = false
     @Volatile private var expertTurnLatch: CountDownLatch? = null
+
+    private class PendingImage(val base64: String, val mimeType: String, val prompt: String)
+
+    /** Image shared before the socket was ready; sent from onReady. */
+    @Volatile private var pendingImage: PendingImage? = null
 
     private val idleRunnable = Runnable {
         Log.i(TAG, "Idle timeout — disconnecting")
@@ -253,6 +260,8 @@ class ChatSession(
                 append("\n---\n")
             }
             append("This is a direct conversation, not a phone call.")
+            append("\n${app.ownerName} can share photos from the phone camera during this conversation; ")
+            append("they arrive as images in the live input. When one arrives, look at it and talk about what they are showing you.")
         }
 
         connectVoice(fullPrompt, savedHandle)
@@ -290,6 +299,7 @@ class ChatSession(
                     val now = SimpleDateFormat("EEEE, MMMM d, yyyy 'at' h:mm a z", Locale.ENGLISH).format(Date())
                     gemini?.sendText("Current date and time: $now. ${app.ownerName} is back — greet them.")
                 }
+                flushPendingImage()
                 app.emitEvent("chatReady", emptyMap<String, Any>())
             },
             onInterrupted = {
@@ -298,6 +308,10 @@ class ChatSession(
                     callAudioHandler?.flushPlayback()
                 }
                 recorder?.finishPlaybackTurn()
+            },
+            onInteractionStatus = { status ->
+                // gemini-3.8-live reports IN_PROGRESS while reasoning or waiting on a tool; the UI shows Thinking.
+                app.emitEvent("chatInteractionStatus", mapOf("status" to status))
             },
             onTurnComplete = {
                 Log.i(TAG, "Chat turn complete (conversation=$conversationMode)")
@@ -388,8 +402,49 @@ class ChatSession(
         teardown()
     }
 
-    fun sendImage(imageBase64: String, mimeType: String, caption: String?) {
-        gemini?.sendImage(imageBase64, mimeType, caption)
+    /** Image chosen from the gallery, already scaled by the picker. [path] is echoed to the UI as a thumbnail. */
+    fun sendImage(imageBase64: String, mimeType: String, caption: String?, path: String? = null) {
+        notePhoto(path)
+        deliverImage(imageBase64, mimeType, caption?.takeIf { it.isNotBlank() } ?: PHOTO_PROMPT)
+    }
+
+    /** Photo taken with the in-conversation viewfinder, already rotated and scaled for the model. */
+    fun sendPhoto(jpeg: ByteArray, path: String) {
+        notePhoto(path)
+        deliverImage(Base64.encodeToString(jpeg, Base64.NO_WRAP), "image/jpeg", PHOTO_PROMPT)
+    }
+
+    private fun notePhoto(path: String?) {
+        val name = path?.let { File(it).name }
+        sessionLog?.log("user", if (name != null) "[shared a photo: $name]" else "[shared a photo]")
+        app.emitEvent("chatPhoto", mapOf("path" to path))
+    }
+
+    /**
+     * Hands an image to the live session. Before the socket is ready (camera opened from idle) the image
+     * waits and goes out from onReady. In push-to-talk the photo is its own turn, so the UI waits for the
+     * reply exactly as it does after releasing the button.
+     */
+    private fun deliverImage(imageBase64: String, mimeType: String, prompt: String) {
+        val client = gemini
+        if (client == null || !client.ready) {
+            pendingImage = PendingImage(imageBase64, mimeType, prompt)
+            Log.i(TAG, "Image queued until the voice session is ready")
+            return
+        }
+        handler.removeCallbacks(idleRunnable)
+        if (!conversationMode && !waitingForResponse) {
+            active = true
+            waitingForResponse = true
+            app.emitEvent("chatWaiting", emptyMap<String, Any>())
+        }
+        client.sendImage(imageBase64, mimeType, prompt)
+    }
+
+    private fun flushPendingImage() {
+        val pending = pendingImage ?: return
+        pendingImage = null
+        deliverImage(pending.base64, pending.mimeType, pending.prompt)
     }
 
     private fun teardown() {
@@ -418,9 +473,9 @@ class ChatSession(
             Thread {
                 try {
                     val extractor = MemoryExtractor(context)
-                    val newFacts = extractor.extract(transcript, logName, app.apiKey)
+                    val newFacts = extractor.extract(transcript, logName)
                     extractor.refreshIndex()
-                    if (newFacts > 0) extractor.compactMemory(app.apiKey)
+                    if (newFacts > 0) extractor.compactMemory()
                 } catch (e: Exception) {
                     Log.w(TAG, "Memory extraction failed: ${e.message}")
                 }
@@ -503,7 +558,7 @@ class ChatSession(
 
     private fun handleToolCall(name: String, args: JSONObject): JSONObject {
         sessionLog?.logTool(name, args)
-        if (name !in setOf("dial_contact", "dial_number", "ask_expert", "hangUp", "end_session")) {
+        if (name !in setOf("dial_contact", "dial_number", "ask_expert", "ask_fable", "hangUp", "end_session")) {
             toolExecutor.handle(name, args)?.let { return it }
         }
         return when (name) {
@@ -646,28 +701,32 @@ class ChatSession(
                     JSONObject().put("status", "dialing").put("number", number)
                 }
             }
-            "ask_expert" -> {
+            "ask_expert", "ask_fable" -> {
                 val question = args.optString("question", "")
-                Log.i(TAG, "Tool: ask_expert '${question.take(80)}'")
+                val advisor = if (name == "ask_fable") "Fable" else "Expert advisor"
+                Log.i(TAG, "Tool: $name '${question.take(80)}'")
                 if (question.isBlank()) {
                     JSONObject().put("error", "question is required")
                 } else {
+                    // The answer can take a while. Return at once so the conversation keeps flowing, then
+                    // hand the answer to the model as a new turn once the current one has finished playing.
                     val latch = CountDownLatch(1)
                     expertTurnLatch = latch
                     Thread({
-                        val result = queryExpert(question)
+                        val result = toolExecutor.handle(name, args) ?: JSONObject().put("error", "$advisor unavailable")
                         val answer = result.optString("answer", result.optString("error", "no response"))
                         latch.await(45, TimeUnit.SECONDS)
                         audioHandler?.awaitPlaybackDrain()
                         expertTurnLatch = null
                         if (gemini?.connected == true) {
-                            gemini?.sendText("Expert advisor response:\n$answer")
-                            Log.i(TAG, "Expert answer delivered (${answer.length} chars)")
+                            val suffix = if (result.optBoolean("note_saved", false)) " (full answer saved as a note)" else ""
+                            gemini?.sendText("$advisor response$suffix:\n$answer")
+                            Log.i(TAG, "$advisor answer delivered (${answer.length} chars)")
                         } else {
-                            Log.w(TAG, "Gemini disconnected before expert answer could be delivered")
+                            Log.w(TAG, "Voice session disconnected before the $advisor answer could be delivered")
                         }
-                    }, "expert-query").start()
-                    JSONObject().put("status", "consulting_expert")
+                    }, "advisor-query").start()
+                    JSONObject().put("status", if (name == "ask_fable") "consulting_fable" else "consulting_expert")
                 }
             }
             "schedule_task" -> {
@@ -787,41 +846,4 @@ class ChatSession(
         }
     }
 
-    private fun queryExpert(question: String): JSONObject {
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$EXPERT_MODEL:generateContent?key=${app.apiKey}"
-        val body = JSONObject()
-            .put("contents", JSONArray().put(JSONObject()
-                .put("parts", JSONArray().put(JSONObject().put("text", question)))
-            ))
-            .put("systemInstruction", JSONObject()
-                .put("parts", JSONArray().put(JSONObject()
-                    .put("text", "You are an expert advisor. Give a direct, thorough answer. No preamble.")
-                ))
-            )
-        val request = Request.Builder()
-            .url(url)
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-        return try {
-            app.httpClient.newCall(request).execute().use { response ->
-                val raw = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
-                    Log.e(TAG, "Expert query failed: ${response.code} $raw")
-                    return JSONObject().put("error", "expert returned ${response.code}")
-                }
-                val json = JSONObject(raw)
-                val text = json.optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-                    ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text", "") ?: ""
-                Log.i(TAG, "Expert answered (${text.length} chars)")
-                JSONObject().put("answer", text)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Expert query error: ${e.message}")
-            JSONObject().put("error", "expert query failed: ${e.message}")
-        }
-    }
 }

@@ -2,22 +2,16 @@ package com.pocketdaemon.pocket_daemon
 
 import android.content.Context
 import android.util.Log
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.TimeUnit
 
 class MemoryExtractor(private val context: Context) {
 
     companion object {
         private const val TAG = "MemoryExtractor"
-        private const val MODEL = "gemini-3.1-pro-preview"
         private const val MEMORY_DIR = "memory"
         private const val LOGS_DIR = "logs"
         private const val MEMORY_FILE = "MEMORY.md"
@@ -105,16 +99,11 @@ Return ONLY a JSON object: {"facts": ["...", ...], "summary": "..."}. Return {"f
     private val logsDir: File
         get() = File(app.persistentDir, LOGS_DIR)
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .build()
-
     /**
      * Run extraction on a completed session log. Call from a background thread.
      * Skips if already processed. Returns number of new facts added.
      */
-    fun extract(rawTranscript: String, logFilename: String, apiKey: String): Int {
+    fun extract(rawTranscript: String, logFilename: String): Int {
         if (isProcessed(logFilename)) {
             Log.i(TAG, "Already processed: $logFilename")
             return 0
@@ -131,7 +120,7 @@ Return ONLY a JSON object: {"facts": ["...", ...], "summary": "..."}. Return {"f
 
         val existingMemory = readExistingMemory()
 
-        val result = callGemini(normalized, existingMemory, apiKey) ?: return 0
+        val result = callModel(normalized, existingMemory) ?: return 0
         val facts = result.first
         val summary = result.second
 
@@ -159,7 +148,6 @@ Return ONLY a JSON object: {"facts": ["...", ...], "summary": "..."}. Return {"f
      * Returns map with processing stats.
      */
     fun processAll(
-        apiKey: String,
         onProgress: ((current: Int, total: Int, filename: String) -> Unit)? = null,
     ): Map<String, Int> {
         if (!logsDir.exists()) return mapOf("total" to 0, "processed" to 0, "skipped" to 0)
@@ -186,7 +174,7 @@ Return ONLY a JSON object: {"facts": ["...", ...], "summary": "..."}. Return {"f
             }
 
             try {
-                totalNewFacts += extract(raw, file.name, apiKey)
+                totalNewFacts += extract(raw, file.name)
                 newlyProcessed++
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to extract ${file.name}: ${e.message}")
@@ -200,7 +188,7 @@ Return ONLY a JSON object: {"facts": ["...", ...], "summary": "..."}. Return {"f
         refreshIndex()
 
         if (totalNewFacts > 0) {
-            compactMemory(apiKey)
+            compactMemory()
         }
 
         Log.i(TAG, "processAll done: $newlyProcessed processed, $totalNewFacts new facts")
@@ -239,69 +227,41 @@ Return ONLY a JSON object: {"facts": ["...", ...], "summary": "..."}. Return {"f
     /**
      * Rewrite MEMORY.md as concise flowing prose via LLM.
      */
-    fun compactMemory(apiKey: String) {
+    fun compactMemory() {
         val file = File(memDir, MEMORY_FILE)
         if (!file.exists()) return
         val original = file.readText().trim()
         if (original.length < 100) return
 
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent?key=$apiKey"
-
-        val body = JSONObject().apply {
-            put("contents", JSONArray().put(JSONObject()
-                .put("parts", JSONArray().put(JSONObject().put("text", original)))
-            ))
-            put("systemInstruction", JSONObject()
-                .put("parts", JSONArray().put(JSONObject().put("text", COMPACT_INSTRUCTION)))
-            )
-            put("generationConfig", JSONObject().apply {
-                put("responseMimeType", "application/json")
-                put("responseSchema", JSONObject().apply {
-                    put("type", "OBJECT")
-                    put("properties", JSONObject().apply {
-                        put("text", JSONObject().put("type", "STRING"))
-                    })
-                    put("required", JSONArray().put("text"))
-                })
-            })
-        }
-
-        val request = Request.Builder()
-            .url(url)
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+        val schema = JSONObject()
+            .put("type", "object")
+            .put("properties", JSONObject().put("text", JSONObject().put("type", "string")))
+            .put("required", JSONArray().put("text"))
 
         try {
-            client.newCall(request).execute().use { response ->
-                val raw = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
-                    Log.e(TAG, "Compact API error ${response.code}: $raw")
-                    return
-                }
+            val response = ReasoningClients.forRole(app, AgentRoles.MEMORY).generate(
+                ReasoningRequest(
+                    system = COMPACT_INSTRUCTION,
+                    messages = listOf(ReasoningMessage.user(original)),
+                    jsonSchema = schema,
+                    maxOutputTokens = 8192,
+                ),
+            )
+            val compacted = ReasoningSchemas.parseJsonObject(response.text)?.optString("text", "")
+                ?.takeIf { it.isNotBlank() } ?: response.text
 
-                val json = JSONObject(raw)
-                val text = json.optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-                    ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text", "") ?: ""
-
-                val compacted = try { JSONObject(text).optString("text", "") } catch (_: Exception) { text }
-
-                if (compacted.isBlank() || compacted.length < original.length * 0.3) {
-                    Log.w(TAG, "Compaction rejected: output ${compacted.length} chars vs original ${original.length}")
-                    return
-                }
-
-                val tmp = File(memDir, "$MEMORY_FILE.tmp")
-                tmp.writeText(compacted.trim() + "\n")
-                if (!tmp.renameTo(file)) {
-                    file.writeText(tmp.readText())
-                    tmp.delete()
-                }
-                Log.i(TAG, "Compacted MEMORY.md: ${original.length} -> ${compacted.length} chars")
+            if (compacted.isBlank() || compacted.length < original.length * 0.3) {
+                Log.w(TAG, "Compaction rejected: output ${compacted.length} chars vs original ${original.length}")
+                return
             }
+
+            val tmp = File(memDir, "$MEMORY_FILE.tmp")
+            tmp.writeText(compacted.trim() + "\n")
+            if (!tmp.renameTo(file)) {
+                file.writeText(tmp.readText())
+                tmp.delete()
+            }
+            Log.i(TAG, "Compacted MEMORY.md: ${original.length} -> ${compacted.length} chars")
         } catch (e: Exception) {
             Log.e(TAG, "Compaction failed: ${e.message}")
         }
@@ -341,65 +301,28 @@ Return ONLY a JSON object: {"facts": ["...", ...], "summary": "..."}. Return {"f
         file.appendText("$logFilename\n")
     }
 
-    private fun callGemini(
-        transcript: String,
-        existingMemory: String,
-        apiKey: String,
-    ): Pair<List<String>, String>? {
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent?key=$apiKey"
-
+    private fun callModel(transcript: String, existingMemory: String): Pair<List<String>, String>? {
         val userMsg = "Existing memory:\n$existingMemory\n\n---\n\nSession transcript:\n$transcript"
-
-        val body = JSONObject().apply {
-            put("contents", JSONArray().put(JSONObject()
-                .put("parts", JSONArray().put(JSONObject().put("text", userMsg)))
-            ))
-            put("systemInstruction", JSONObject()
-                .put("parts", JSONArray().put(JSONObject().put("text", systemInstruction(PocketDaemonApp.instance!!.ownerName))))
-            )
-            put("generationConfig", JSONObject().apply {
-                put("responseMimeType", "application/json")
-                put("responseSchema", JSONObject().apply {
-                    put("type", "OBJECT")
-                    put("properties", JSONObject().apply {
-                        put("facts", JSONObject().apply {
-                            put("type", "ARRAY")
-                            put("items", JSONObject().put("type", "STRING"))
-                        })
-                        put("summary", JSONObject().put("type", "STRING"))
-                    })
-                    put("required", JSONArray().put("facts").put("summary"))
-                })
-            })
-        }
-
-        val request = Request.Builder()
-            .url(url)
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+        val schema = JSONObject()
+            .put("type", "object")
+            .put("properties", JSONObject()
+                .put("facts", JSONObject().put("type", "array").put("items", JSONObject().put("type", "string")))
+                .put("summary", JSONObject().put("type", "string")))
+            .put("required", JSONArray().put("facts").put("summary"))
 
         return try {
-            client.newCall(request).execute().use { response ->
-                val raw = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
-                    Log.e(TAG, "API error ${response.code}: $raw")
-                    return null
-                }
-
-                val json = JSONObject(raw)
-                val text = json.optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-                    ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text", "{}") ?: "{}"
-
-                val parsed = JSONObject(text)
-                val factsArr = parsed.optJSONArray("facts") ?: JSONArray()
-                val facts = (0 until factsArr.length()).map { factsArr.getString(it) }
-                val summary = parsed.optString("summary", "")
-                Pair(facts, summary)
-            }
+            val response = ReasoningClients.forRole(app, AgentRoles.MEMORY).generate(
+                ReasoningRequest(
+                    system = systemInstruction(app.ownerName),
+                    messages = listOf(ReasoningMessage.user(userMsg)),
+                    jsonSchema = schema,
+                    maxOutputTokens = 4096,
+                ),
+            )
+            val parsed = ReasoningSchemas.parseJsonObject(response.text) ?: JSONObject()
+            val factsArr = parsed.optJSONArray("facts") ?: JSONArray()
+            val facts = (0 until factsArr.length()).map { factsArr.getString(it) }
+            Pair(facts, parsed.optString("summary", ""))
         } catch (e: Exception) {
             Log.e(TAG, "Extraction failed: ${e.message}")
             null

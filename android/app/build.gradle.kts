@@ -53,10 +53,27 @@ android {
             }
         }
     }
+
+    testOptions {
+        // Let android.util.Log calls no-op in JVM unit tests.
+        unitTests.isReturnDefaultValues = true
+    }
+
+    packaging {
+        resources {
+            excludes += setOf("META-INF/INDEX.LIST", "META-INF/DEPENDENCIES", "META-INF/AL2.0", "META-INF/LGPL2.1")
+        }
+    }
 }
 
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Claude (Anthropic) reasoning backend and the ask_fable tool.
+    implementation("com.anthropic:anthropic-java:2.34.0")
+
+    testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM unit tests (android.jar ships stubs).
+    testImplementation("org.json:json:20240303")
 }
 
 flutter {

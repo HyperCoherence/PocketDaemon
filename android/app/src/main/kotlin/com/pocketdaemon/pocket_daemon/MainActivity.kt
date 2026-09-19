@@ -15,6 +15,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.view.TextureRegistry
 import java.io.File
 
 class MainActivity : FlutterActivity() {
@@ -33,6 +34,8 @@ class MainActivity : FlutterActivity() {
     private lateinit var noteManager: NoteManager
     private var chatSession: ChatSession? = null
     private var textChatSession: TextChatSession? = null
+    private var textureRegistry: TextureRegistry? = null
+    private var viewfinder: CameraViewfinder? = null
 
     private val eventListener: (String, Map<String, Any?>) -> Unit = { type, data ->
         handler.post { emitToFlutter(type, data) }
@@ -52,6 +55,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        textureRegistry = flutterEngine.renderer
         noteManager = NoteManager(applicationContext)
         app.addEventListener(eventListener)
         app.addActionListener(actionListener)
@@ -90,6 +94,7 @@ class MainActivity : FlutterActivity() {
                             voice = call.argument<String>("voice"),
                             geminiApiKey = call.argument<String>("geminiApiKey") ?: call.argument<String>("apiKey"),
                             xaiApiKey = call.argument<String>("xaiApiKey"),
+                            anthropicApiKey = call.argument<String>("anthropicApiKey"),
                         )
                         val pairs = mutableMapOf<String, Any?>()
                         call.argument<Int>("answerDelay")?.let { pairs["answerDelay"] = it.toLong() }
@@ -257,7 +262,7 @@ class MainActivity : FlutterActivity() {
                         Thread {
                             try {
                                 val stats = MemoryExtractor(applicationContext)
-                                    .processAll(app.apiKey) { current, total, filename ->
+                                    .processAll { current, total, filename ->
                                         handler.post {
                                             extractionSink?.success(mapOf(
                                                 "current" to current,
@@ -390,11 +395,59 @@ class MainActivity : FlutterActivity() {
                         val b64 = call.argument<String>("imageBase64") ?: ""
                         val mime = call.argument<String>("imageMimeType") ?: "image/jpeg"
                         val caption = call.argument<String>("caption")
-                        if (b64.isBlank() || chatSession?.active != true) {
+                        val path = call.argument<String>("path")
+                        val session = chatSession
+                        if (b64.isBlank() || session == null) {
                             result.success(mapOf("status" to "no_session"))
                         } else {
-                            chatSession!!.sendImage(b64, mime, caption)
+                            // The session queues the image itself while it is still connecting.
+                            session.sendImage(b64, mime, caption, path)
                             result.success(mapOf("status" to "sent"))
+                        }
+                    }
+                    "openViewfinder" -> {
+                        val facing = call.argument<String>("facing") ?: "back"
+                        val registry = textureRegistry
+                        if (registry == null) {
+                            result.success(mapOf("error" to "renderer unavailable"))
+                        } else {
+                            val vf = viewfinder
+                                ?: CameraViewfinder(this@MainActivity, registry).also { viewfinder = it }
+                            vf.open(useBackCamera = facing != "front") { res ->
+                                handler.post { result.success(res) }
+                            }
+                        }
+                    }
+                    "captureViewfinderPhoto" -> {
+                        val vf = viewfinder
+                        if (vf == null || !vf.isOpen) {
+                            result.success(mapOf("error" to "viewfinder is not open"))
+                        } else {
+                            vf.capture { res ->
+                                handler.post {
+                                    val reply = HashMap<String, Any?>()
+                                    val path = res["path"] as? String
+                                    val jpeg = res["jpeg"] as? ByteArray
+                                    res["error"]?.let { reply["error"] = it }
+                                    if (path != null) reply["path"] = path
+                                    val session = chatSession
+                                    if (jpeg != null && path != null && session != null) {
+                                        session.sendPhoto(jpeg, path)
+                                        reply["status"] = "sent"
+                                    } else if (path != null) {
+                                        reply["status"] = "saved"
+                                    }
+                                    result.success(reply)
+                                }
+                            }
+                        }
+                    }
+                    "closeViewfinder" -> {
+                        val vf = viewfinder
+                        if (vf == null) {
+                            result.success(true)
+                        } else {
+                            vf.close { handler.post { result.success(true) } }
                         }
                     }
                     "endTextChat" -> {
@@ -441,7 +494,15 @@ class MainActivity : FlutterActivity() {
         app.locationProvider.refreshInBackground()
     }
 
+    override fun onStop() {
+        // The camera must not stay open in the background; the viewfinder page closes itself too.
+        viewfinder?.close()
+        super.onStop()
+    }
+
     override fun onDestroy() {
+        viewfinder?.destroy()
+        viewfinder = null
         chatSession?.cancel()
         textChatSession?.end()
         textChatSession = null
@@ -457,6 +518,7 @@ class MainActivity : FlutterActivity() {
             add(Manifest.permission.CALL_PHONE)
             add(Manifest.permission.SEND_SMS)
             add(Manifest.permission.RECORD_AUDIO)
+            add(Manifest.permission.CAMERA)
             add(Manifest.permission.MODIFY_AUDIO_SETTINGS)
             add(Manifest.permission.READ_CALL_LOG)
             add(Manifest.permission.READ_CONTACTS)

@@ -1,6 +1,6 @@
 id=pocketdaemon
 name=PocketDaemon System App
-version=1.30.0
-versionCode=37
+version=1.32.0
+versionCode=40
 author=PocketDaemon contributors
 description=Installs PocketDaemon as a system privileged app with telephony audio permissions

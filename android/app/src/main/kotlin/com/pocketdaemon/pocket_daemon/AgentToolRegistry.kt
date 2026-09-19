@@ -25,6 +25,7 @@ object AgentToolRegistry {
     const val TAKE_PHOTO = "take_photo"
     const val USE_SKILL = "use_skill"
     const val GOOGLE_SEARCH = "google_search"
+    const val ASK_FABLE = "ask_fable"
 
     val AGENT_TOOLS = mapOf(
         "call" to listOf(HANG_UP, LEAVE_MESSAGE, USE_SKILL, GOOGLE_SEARCH),
@@ -52,6 +53,7 @@ object AgentToolRegistry {
             OPEN_MAPS,
             PLAY_YOUTUBE,
             ASK_EXPERT,
+            ASK_FABLE,
             ADD_CONTACT,
             DIAL_CONTACT,
             DIAL_NUMBER,
@@ -71,6 +73,7 @@ object AgentToolRegistry {
             GET_NOTES,
             SEARCH_CONTACTS,
             ASK_EXPERT,
+            ASK_FABLE,
             USE_SKILL,
             GOOGLE_SEARCH,
         ),
@@ -78,37 +81,35 @@ object AgentToolRegistry {
 
     val ALWAYS_ON_TOOLS = setOf(HANG_UP)
 
+    /**
+     * Tools that can take seconds (model round-trip, HTTP fetch, GPS fix, camera timer) run as
+     * NON_BLOCKING live function calls so the agent keeps talking while they execute. WHEN_IDLE
+     * hands the result over once the agent finishes its current sentence instead of cutting it off.
+     */
+    private val NON_BLOCKING_TOOLS = setOf(ASK_EXPERT, ASK_FABLE, TAKE_PHOTO, USE_SKILL, GET_LOCATION)
+
     fun liveDeclarations(ownerName: String, agentType: String): List<ToolSpec> {
-        return toolNames(agentType).mapNotNull { name -> declaration(ownerName, agentType, name) }
+        return toolNames(agentType).mapNotNull { name ->
+            declaration(ownerName, agentType, name)?.let { spec ->
+                if (name in NON_BLOCKING_TOOLS) {
+                    spec.copy(behavior = ToolBehavior.NON_BLOCKING, scheduling = ToolScheduling.WHEN_IDLE)
+                } else {
+                    spec
+                }
+            }
+        }
     }
 
-    fun restTools(
-        ownerName: String,
-        agentType: String,
-        isEnabled: (String) -> Boolean,
-        includeGoogleSearch: Boolean,
-    ): JSONArray {
-        val toolsArr = JSONArray()
-        val funcDecls = JSONArray()
-        for (name in toolNames(agentType)) {
-            if (name == GOOGLE_SEARCH) continue
-            if (!isEnabled(name)) continue
-            val decl = declaration(ownerName, agentType, name) ?: continue
-            val declJson = JSONObject()
-                .put("name", decl.name)
-                .put("description", decl.description)
-            val params = decl.parameters
-            if (params != null) declJson.put("parameters", params)
-            funcDecls.put(declJson)
-        }
-        if (funcDecls.length() > 0) {
-            toolsArr.put(JSONObject().put("functionDeclarations", funcDecls))
-        }
-        if (includeGoogleSearch && toolNames(agentType).contains(GOOGLE_SEARCH) && isEnabled(GOOGLE_SEARCH)) {
-            toolsArr.put(JSONObject().put("google_search", JSONObject()))
-        }
-        return toolsArr
+    /** Enabled function tools for a REST (text) session, in provider-neutral form. */
+    fun restToolSpecs(ownerName: String, agentType: String, isEnabled: (String) -> Boolean): List<ToolSpec> {
+        return toolNames(agentType)
+            .filter { it != GOOGLE_SEARCH && isEnabled(it) }
+            .mapNotNull { declaration(ownerName, agentType, it) }
     }
+
+    /** Whether the tier may use the provider's own web grounding. */
+    fun webSearchEnabled(agentType: String, isEnabled: (String) -> Boolean): Boolean =
+        toolNames(agentType).contains(GOOGLE_SEARCH) && isEnabled(GOOGLE_SEARCH)
 
     private fun toolNames(agentType: String): List<String> = AGENT_TOOLS[agentType] ?: emptyList()
 
@@ -190,6 +191,20 @@ object AgentToolRegistry {
                 description = "Consult a stronger model for complex reasoning, planning, math, coding, analysis, or careful second opinions. Do not use for simple questions. For current facts, use google_search first.",
                 parameters = objectSchema(
                     "question" to stringSchema("Self-contained question or problem for the expert model.")
+                ),
+            )
+            ASK_FABLE -> ToolSpec(
+                name = name,
+                description = "Ask Fable, a Claude-based advisor with live internet search, for careful reasoning, current facts, or research. Use when $ownerName says 'ask Fable' or when a good answer needs the web. Returns a short spoken summary; long answers and sources are saved as a note.",
+                parameters = objectSchema(
+                    "question" to stringSchema("Self-contained question for Fable, including any context it needs."),
+                    required = listOf("question"),
+                    optional = mapOf(
+                        "mode" to JSONObject()
+                            .put("type", "string")
+                            .put("enum", JSONArray().put("quick").put("research"))
+                            .put("description", "quick for a fast answer (default); research for a thorough, sourced answer."),
+                    ),
                 ),
             )
             ADD_CONTACT -> ToolSpec(

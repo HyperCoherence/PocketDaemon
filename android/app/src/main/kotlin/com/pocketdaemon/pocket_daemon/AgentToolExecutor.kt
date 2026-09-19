@@ -7,9 +7,6 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.telephony.SmsManager
 import android.util.Log
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -20,12 +17,12 @@ class AgentToolExecutor(
     private val context: Context,
     private val source: String,
     private val createdBy: String,
+    /** Recent transcript of the calling session, given to advisors as context. */
+    private val recentTranscript: (() -> String?)? = null,
     private val onAppSwitched: (() -> Unit)? = null,
 ) {
     companion object {
         private const val TAG = "AgentToolExecutor"
-        private const val EXPERT_MODEL = "gemini-3.1-pro-preview"
-        private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
     }
 
     private val app = PocketDaemonApp.instance!!
@@ -43,6 +40,7 @@ class AgentToolExecutor(
             AgentToolRegistry.OPEN_MAPS -> openMaps(args)
             AgentToolRegistry.PLAY_YOUTUBE -> playYoutube(args)
             AgentToolRegistry.ASK_EXPERT -> askExpert(args)
+            AgentToolRegistry.ASK_FABLE -> askFable(args)
             AgentToolRegistry.ADD_CONTACT -> addContact(args)
             AgentToolRegistry.SCHEDULE_TASK -> scheduleTask(args)
             AgentToolRegistry.LIST_SCHEDULED_TASKS -> listScheduledTasks(args)
@@ -308,39 +306,35 @@ class AgentToolExecutor(
     private fun askExpert(args: JSONObject): JSONObject {
         val question = args.optString("question", "")
         if (question.isBlank()) return error("question is required")
+        Log.i(TAG, "Tool: ask_expert '${question.take(80)}'")
 
-        val url = "$BASE_URL/$EXPERT_MODEL:generateContent?key=${app.apiKey}"
-        val body = JSONObject()
-            .put("contents", JSONArray().put(JSONObject()
-                .put("parts", JSONArray().put(JSONObject().put("text", question)))))
-            .put("systemInstruction", JSONObject()
-                .put("parts", JSONArray().put(JSONObject()
-                    .put("text", "You are an expert advisor. Give a direct, thorough answer. No preamble."))))
-        val request = Request.Builder()
-            .url(url)
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
-            .build()
         return try {
-            app.httpClient.newCall(request).execute().use { response ->
-                val raw = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
-                    return error("expert returned ${response.code}: ${raw.take(200)}")
-                }
-                val text = JSONObject(raw)
-                    .optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-                    ?.optJSONArray("parts")
-                    ?.optJSONObject(0)
-                    ?.optString("text", "") ?: ""
-                ok("answer" to text)
+            val client = ReasoningClients.forRole(app, AgentRoles.EXPERT)
+            val response = client.generate(
+                ReasoningRequest(
+                    system = "You are an expert advisor. Give a direct, thorough answer. No preamble.",
+                    messages = listOf(ReasoningMessage.user(question)),
+                    maxOutputTokens = 4096,
+                ),
+            )
+            if (response.refusal != null) {
+                error("expert declined: ${response.refusal}")
+            } else {
+                Log.i(TAG, "Expert (${client.provider}/${client.model}) answered (${response.text.length} chars)")
+                ok("answer" to response.text)
             }
-        } catch (e: Exception) {
+        } catch (e: ReasoningException) {
             error("expert query failed: ${e.message}")
         }
     }
 
-    @Suppress("DEPRECATION")
+    private fun askFable(args: JSONObject): JSONObject {
+        val question = args.optString("question", "")
+        val mode = args.optString("mode", "")
+        Log.i(TAG, "Tool: ask_fable mode=${mode.ifBlank { "quick" }} '${question.take(80)}'")
+        return FableAdvisor(context, recentTranscript).ask(question, mode)
+    }
+
     private fun sendSms(args: JSONObject): JSONObject {
         val message = args.optString("message", "")
         if (message.isBlank()) return error("message is required")

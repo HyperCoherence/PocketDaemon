@@ -5,25 +5,39 @@
     },
     "xai": {
       "apiKey": "YOUR_XAI_API_KEY"
+    },
+    "anthropic": {
+      "apiKey": "YOUR_ANTHROPIC_API_KEY"
     }
   },
   "agents": {
     "voice": {
       "provider": "gemini",
-      "model": "gemini-3.1-flash-live-preview",
-      "voice": "Kore"
+      "model": "gemini-3.8-live",
+      "voice": "Kore",
+      "thinking": false,
+      "thinkingLevel": "low"
+    },
+    "chat": {
+      "provider": "gemini",
+      "model": "gemini-3.1-pro-preview"
     },
     "expert": {
       "provider": "gemini",
-      "model": "gemini-3.1-flash-live-preview"
+      "model": "gemini-3.1-pro-preview"
     },
     "scheduler": {
       "provider": "gemini",
-      "model": "gemini-3.1-flash-live-preview"
+      "model": "gemini-3.1-pro-preview"
     },
     "memory": {
       "provider": "gemini",
-      "model": "gemini-3.1-flash-live-preview"
+      "model": "gemini-3.1-pro-preview"
+    },
+    "fable": {
+      "provider": "anthropic",
+      "model": "claude-fable-5-1",
+      "effort": "medium"
     }
   },
   "ownerName": "Phone owner",

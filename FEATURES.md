@@ -2,11 +2,15 @@
 
 ## AI Phone Receptionist
 
-Answers incoming calls autonomously using provider-neutral realtime voice streaming. Gemini Live and xAI Voice Agent are first-class voice providers. The agent speaks naturally over WebSocket-streamed PCM audio (16 kHz capture, 24 kHz playback), handles the conversation, and either resolves the caller intent or takes a message. No human interaction required.
+Answers incoming calls autonomously using provider-neutral realtime voice streaming. Gemini Live (default model `gemini-3.8-live`) and xAI Voice Agent are first-class voice providers. The agent speaks naturally over WebSocket-streamed PCM audio (16 kHz capture, 24 kHz playback), handles the conversation, and either resolves the caller intent or takes a message. No human interaction required.
 
 ## Real-Time Voice Conversation
 
 Full duplex voice chat outside of phone calls. Push-to-talk or continuous conversation mode with a dedicated foreground service for mic access. Audio-reactive orb visualization reflects agent state (idle, listening, thinking, speaking). Gemini sessions persist via Live session handles for seamless resume.
+
+## Non-Blocking Tools and Thinking
+
+Slow tools (expert consult, skill fetches, GPS fixes, camera timers) are declared as non-blocking Live API function calls, so the Gemini agent keeps talking while they run and picks the result up once it is idle instead of going silent. Gemini live thinking is off by default. A thinking level (`minimal`, `low`, `medium`, `high`) can be enabled in settings for models that accept one, such as `gemini-3.8-live-extended-thinking`; `gemini-3.8-live` reasons on its own and ignores the setting. On `gemini-3.8-live` the end of an agent turn is taken from the Live API interaction status (`IN_PROGRESS` while reasoning or waiting on a tool, `REQUIRES_ACTION` once idle) rather than `turnComplete`, so push-to-talk turns and idle timers wait for the model to actually finish, and the chat chip shows Thinking while the status is in progress.
 
 ## Caller Routing and Trust Tiers
 
@@ -34,11 +38,19 @@ Toggleable per agent tier. Gemini sessions get Google Search access; xAI session
 
 ## Expert Advisor
 
-Mid-conversation escalation to a separate Gemini Pro instance. The voice agent invokes ask_expert to query a more capable model, then incorporates the answer back into the live session.
+Mid-conversation escalation to a separate, stronger model. The voice agent invokes ask_expert to query the expert role's configured model (Gemini, xAI, or Claude), then incorporates the answer back into the live session.
+
+## Ask Fable
+
+"Let me ask Fable about this." The ask_fable tool sends the question, recent conversation, and memory context to Claude Fable 5.1 with server-side web search and fetch, so the agent gets careful reasoning and current, sourced facts. Fable replies with a spoken summary; long answers and their sources are saved as a note. A rolling per-day thread lets follow-up questions build on earlier ones. Quick mode answers fast; research mode raises effort for thorough work. Requires an Anthropic API key. Available to the chat agent and scheduled tasks.
+
+## Provider-Neutral Reasoning
+
+Text chat, the expert advisor, scheduled tasks, and memory extraction run on a reasoning client that speaks Gemini, xAI (Grok), or Claude. Each role has its own provider and model in config, and a role whose provider has no key falls back to any provider that does, so an xAI-only or Claude-only setup still gets working chat and memory.
 
 ## Text Chat
 
-REST-based multi-turn text chat with Gemini Pro. Supports image attachments via camera or gallery. Same tool ecosystem as voice. Full conversation history with thinking indicators.
+REST-based multi-turn text chat on the chat role's model (Gemini, xAI, or Claude). Supports image attachments via camera or gallery. Same tool ecosystem as voice. Full conversation history with thinking indicators.
 
 ## Skills System
 
@@ -50,7 +62,7 @@ Three independent modes: agent-handled calls, agent voice conversations, and hum
 
 ## Camera Integration
 
-Take photos on command via Camera2 API. Photos sent into active voice sessions or text chats as inline image data for visual context.
+Take photos on command via Camera2 API, or show things to the agent yourself: a camera button beside the talk orb opens an in-app viewfinder while the voice session keeps running, and the shutter sends the photo straight into the live session as a realtime image frame, so you keep talking about what the agent now sees. Gallery images can be shared the same way, and the live transcript shows a thumbnail. Agent-triggered photos are sent into active voice sessions or text chats as inline image data for visual context.
 
 ## Notes and Notifications
 
@@ -101,4 +113,4 @@ Editable SOUL.md with variable substitution. Separate CALL_PROMPT.md override. P
 
 ## Offline-First Architecture
 
-All data on /sdcard/PocketDaemon/. Config, memory, notes, logs, skills, recordings, scheduled tasks. Human-readable markdown and JSON. Realtime voice can use Gemini or xAI; expert, scheduler, and memory roles currently remain Gemini-backed.
+All data on /sdcard/PocketDaemon/. Config, memory, notes, logs, skills, recordings, scheduled tasks. Human-readable markdown and JSON. Realtime voice can use Gemini or xAI; chat, expert, scheduler, and memory roles can use Gemini, xAI, or Claude.

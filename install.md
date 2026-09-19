@@ -69,6 +69,12 @@ Non-interactive setup is supported:
 go run . setup --provider xai --api-key "$env:XAI_API_KEY" --model grok-voice-think-fast-1.0 --voice eve --apply
 ```
 
+Add `--anthropic-api-key "$env:ANTHROPIC_API_KEY"` to enable Claude for reasoning
+roles and the Ask Fable tool.
+Add `--thinking-level low|medium|high` to enable Gemini live thinking, or
+`--thinking-level off` to disable it. `gemini-3.8-live` (the default) does not
+accept a level; use `gemini-3.8-live-extended-thinking` when you want one.
+
 ## Manual Sideload Configuration
 
 Copy `pocketdaemon_config.example.json` to `pocketdaemon_config.json`, fill in your

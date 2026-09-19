@@ -6,9 +6,6 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.ContactsContract
 import android.util.Log
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -16,7 +13,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Text-based chat session using the Gemini REST API (generateContent).
+ * Text-based chat session over the chat role's reasoning model (Gemini, xAI, or Claude).
  * Manages multi-turn conversation history, function calling, and logs
  * to the same session_logs directory as voice sessions for transcript continuity.
  */
@@ -24,29 +21,19 @@ class TextChatSession(private val context: Context) {
 
     companion object {
         private const val TAG = "TextChatSession"
-        private const val MODEL = "gemini-3.1-pro-preview"
-        private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
         private const val MAX_TOOL_ROUNDS = 10
-
-        private fun stringParam(name: String, desc: String) = JSONObject()
-            .put("type", "object")
-            .put("properties", JSONObject()
-                .put(name, JSONObject()
-                    .put("type", "string")
-                    .put("description", desc)
-                )
-            )
-            .put("required", JSONArray().put(name))
     }
 
     private val app = PocketDaemonApp.instance!!
     private val noteManager = NoteManager(context)
     private val memoryManager = MemoryManager(context)
-    private val toolExecutor = AgentToolExecutor(context, "textchat", "text")
+    private val toolExecutor = AgentToolExecutor(context, "textchat", "text", recentTranscript = { sessionLog?.getTranscript() })
 
-    private val conversationHistory = mutableListOf<JSONObject>()
+    private val conversationHistory = mutableListOf<ReasoningMessage>()
     private var systemInstruction: String = ""
     private var sessionLog: SessionLogger? = null
+    private var reasoning: ReasoningClient? = null
+    private var reasoningError: String? = null
 
     @Volatile var active = false
         private set
@@ -59,6 +46,13 @@ class TextChatSession(private val context: Context) {
         active = true
 
         sessionLog = SessionLogger.create(context, "textchat")
+        reasoning = try {
+            ReasoningClients.forRole(app, AgentRoles.CHAT).also { reasoningError = null }
+        } catch (e: ReasoningException) {
+            Log.w(TAG, "No reasoning provider for text chat: ${e.message}")
+            reasoningError = e.message
+            null
+        }
 
         val memoryCtx = memoryManager.getSessionContext(excludeFile = sessionLog?.filename)
         val locationCtx = app.locationProvider.getLastLocationSummary()
@@ -94,20 +88,14 @@ class TextChatSession(private val context: Context) {
         busy = true
 
         sessionLog?.log("user", if (imageBase64 != null) "[image] $text" else text)
-        val parts = JSONArray()
+        val parts = mutableListOf<ReasoningPart>()
         if (imageBase64 != null) {
-            parts.put(JSONObject().put("inlineData", JSONObject()
-                .put("mimeType", imageMimeType ?: "image/jpeg")
-                .put("data", imageBase64)
-            ))
+            parts.add(ReasoningPart.Image(imageBase64, imageMimeType ?: "image/jpeg"))
         }
         if (text.isNotBlank()) {
-            parts.put(JSONObject().put("text", text))
+            parts.add(ReasoningPart.Text(text))
         }
-        conversationHistory.add(JSONObject()
-            .put("role", "user")
-            .put("parts", parts)
-        )
+        conversationHistory.add(ReasoningMessage(ReasoningMessage.USER, parts))
 
         Thread({
             try {
@@ -146,9 +134,9 @@ class TextChatSession(private val context: Context) {
             Thread {
                 try {
                     val extractor = MemoryExtractor(context)
-                    val newFacts = extractor.extract(transcript, logName, app.apiKey)
+                    val newFacts = extractor.extract(transcript, logName)
                     extractor.refreshIndex()
-                    if (newFacts > 0) extractor.compactMemory(app.apiKey)
+                    if (newFacts > 0) extractor.compactMemory()
                 } catch (e: Exception) {
                     Log.w(TAG, "Memory extraction failed: ${e.message}")
                 }
@@ -160,208 +148,24 @@ class TextChatSession(private val context: Context) {
     }
 
     // -----------------------------------------------------------------------
-    // generateContent loop with function calling
+    // Model loop with function calling (provider chosen by the chat role config)
     // -----------------------------------------------------------------------
 
     private fun runGenerateLoop(): String? {
-        var rounds = 0
-        while (rounds < MAX_TOOL_ROUNDS) {
-            rounds++
-            val responseContent = callGenerateContent() ?: return null
-
-            conversationHistory.add(responseContent)
-
-            val parts = responseContent.optJSONArray("parts") ?: return null
-            val functionCalls = mutableListOf<Pair<String, JSONObject>>()
-            val textParts = StringBuilder()
-
-            for (i in 0 until parts.length()) {
-                val part = parts.getJSONObject(i)
-                if (part.has("functionCall")) {
-                    val fc = part.getJSONObject("functionCall")
-                    functionCalls.add(fc.getString("name") to fc)
-                }
-                if (part.has("text")) {
-                    textParts.append(part.getString("text"))
-                }
-            }
-
-            if (functionCalls.isEmpty()) {
-                return textParts.toString().ifBlank { null }
-            }
-
-            val functionResponseParts = JSONArray()
-            for ((name, fc) in functionCalls) {
-                val args = fc.optJSONObject("args") ?: JSONObject()
-                val id = fc.optString("id", "")
-                Log.i(TAG, "Tool call: $name args=$args")
-                app.emitEvent("textChatThinking", mapOf("tool" to name))
-                sessionLog?.logTool(name, args)
-
-                val result = handleToolCall(name, args)
-
-                val responseObj = JSONObject()
-                    .put("name", name)
-                    .put("response", result)
-                if (id.isNotBlank()) responseObj.put("id", id)
-                functionResponseParts.put(JSONObject().put("functionResponse", responseObj))
-            }
-
-            conversationHistory.add(JSONObject()
-                .put("role", "user")
-                .put("parts", functionResponseParts)
-            )
+        val client = reasoning ?: throw ReasoningException(reasoningError ?: "No reasoning provider configured")
+        val isEnabled = { name: String -> app.isToolEnabled("chat", name) }
+        return ReasoningLoop.run(
+            client = client,
+            system = systemInstruction,
+            history = conversationHistory,
+            tools = AgentToolRegistry.restToolSpecs(app.ownerName, "chat", isEnabled),
+            webSearch = AgentToolRegistry.webSearchEnabled("chat", isEnabled),
+            maxRounds = MAX_TOOL_ROUNDS,
+            onToolStart = { name -> app.emitEvent("textChatThinking", mapOf("tool" to name)) },
+        ) { name, args ->
+            sessionLog?.logTool(name, args)
+            handleToolCall(name, args)
         }
-
-        Log.w(TAG, "Max tool rounds reached ($MAX_TOOL_ROUNDS)")
-        return null
-    }
-
-    private fun callGenerateContent(): JSONObject? {
-        val url = "$BASE_URL/$MODEL:generateContent?key=${app.apiKey}"
-
-        val body = JSONObject().apply {
-            put("systemInstruction", JSONObject()
-                .put("parts", JSONArray().put(JSONObject().put("text", systemInstruction)))
-            )
-            put("contents", JSONArray().apply { conversationHistory.forEach { put(it) } })
-            val toolsArr = buildTools()
-            if (toolsArr.length() > 0) {
-                put("tools", toolsArr)
-            }
-        }
-
-        val request = Request.Builder()
-            .url(url)
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return try {
-            app.httpClient.newCall(request).execute().use { response ->
-                val raw = response.body?.string() ?: ""
-                if (!response.isSuccessful) {
-                    Log.e(TAG, "generateContent failed: ${response.code} ${raw.take(500)}")
-                    return null
-                }
-                val json = JSONObject(raw)
-                json.optJSONArray("candidates")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("content")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "generateContent error: ${e.message}", e)
-            null
-        }
-    }
-
-    private fun buildTools(): JSONArray {
-        return AgentToolRegistry.restTools(
-            ownerName = app.ownerName,
-            agentType = "chat",
-            isEnabled = { app.isToolEnabled("chat", it) },
-            includeGoogleSearch = true,
-        )
-
-        val ownerName = app.ownerName
-        val toolsArr = JSONArray()
-
-        val declarations = listOf(
-            Triple("leave_message",
-                "Leave a message for $ownerName to read. Appears in their notification inbox.",
-                stringParam("text", "The message content")),
-            Triple("search_memory",
-                "Search $ownerName's memory for relevant information. Use keywords or phrases.",
-                stringParam("query", "Search keywords or phrase")),
-            Triple("get_location",
-                "Get $ownerName's current GPS location.",
-                null),
-            Triple("get_notes",
-                "Retrieve all notes and messages saved by the phone agent and chat sessions.",
-                null),
-            Triple("open_maps",
-                "Open Google Maps. Set navigate=true for turn-by-turn directions (replaces current destination if already navigating). Default mode opens a map search.",
-                JSONObject()
-                    .put("type", "object")
-                    .put("properties", JSONObject()
-                        .put("address", JSONObject().put("type", "string").put("description", "The address, place name, or search query"))
-                        .put("navigate", JSONObject().put("type", "boolean").put("description", "true for turn-by-turn navigation, false for map search (default false)")))
-                    .put("required", JSONArray().put("address"))),
-            Triple("play_youtube",
-                "Play a YouTube video. Use google_search first to find a specific, age-appropriate video URL on the topic, then call this tool with that URL. YouTube time is limited per day; the system auto-closes YouTube when time runs out. If the limit is reached, tell the user their YouTube time for today is used up and they need approval for more. Only play educational or enriching content.",
-                JSONObject()
-                    .put("type", "object")
-                    .put("properties", JSONObject()
-                        .put("url", JSONObject().put("type", "string").put("description", "Full YouTube video URL"))
-                        .put("title", JSONObject().put("type", "string").put("description", "Video title for logging")))
-                    .put("required", JSONArray().put("url"))),
-            Triple("add_contact",
-                "Add a contact to $ownerName's phone. Phone numbers MUST be in full international format.",
-                JSONObject()
-                    .put("type", "object")
-                    .put("properties", JSONObject()
-                        .put("name", JSONObject().put("type", "string").put("description", "Contact display name"))
-                        .put("phone", JSONObject().put("type", "string").put("description", "Phone number")))
-                    .put("required", JSONArray().put("name").put("phone"))),
-            Triple("end_session",
-                "End the current text chat session. Use when the conversation is complete or $ownerName says goodbye.",
-                null),
-            Triple("schedule_task",
-                "Schedule a task for the future. The task prompt will be executed automatically at the scheduled time and the result delivered as a notification to $ownerName. Use for reminders, periodic check-ins, delayed actions, or anything $ownerName wants done later.",
-                JSONObject()
-                    .put("type", "object")
-                    .put("properties", JSONObject()
-                        .put("description", JSONObject()
-                            .put("type", "string")
-                            .put("description", "Short human-readable task name shown in the task list"))
-                        .put("prompt", JSONObject()
-                            .put("type", "string")
-                            .put("description", "The full instruction to execute when the task fires"))
-                        .put("delayMinutes", JSONObject()
-                            .put("type", "integer")
-                            .put("description", "Minutes from now until first execution"))
-                        .put("recurring", JSONObject()
-                            .put("type", "boolean")
-                            .put("description", "Whether this task should repeat on an interval"))
-                        .put("intervalMinutes", JSONObject()
-                            .put("type", "integer")
-                            .put("description", "Minutes between recurrences (required if recurring is true)")))
-                    .put("required", JSONArray().put("description").put("prompt").put("delayMinutes"))),
-            Triple("take_photo",
-                "Take a photo using the phone's camera. Saves to storage. Supports an optional delay timer. Tell $ownerName before capturing so they can prepare.",
-                JSONObject()
-                    .put("type", "object")
-                    .put("properties", JSONObject()
-                        .put("camera", JSONObject()
-                            .put("type", "string")
-                            .put("enum", JSONArray().put("back").put("front"))
-                            .put("description", "Which camera to use (default: back)"))
-                        .put("delay_seconds", JSONObject()
-                            .put("type", "integer")
-                            .put("description", "Seconds to wait before taking the photo (0-30, default 0)")))),
-            Triple("use_skill",
-                "Load a skill's full instructions by name. Call this when one of the available skills is relevant to the current task.",
-                stringParam("name", "The skill folder name from the available skills list")),
-        )
-
-        val funcDecls = JSONArray()
-        for ((name, desc, params) in declarations) {
-            if (!app.isToolEnabled("chat", name)) continue
-            val decl = JSONObject()
-                .put("name", name)
-                .put("description", desc)
-            if (params != null) decl.put("parameters", params)
-            funcDecls.put(decl)
-        }
-
-        if (funcDecls.length() > 0) {
-            toolsArr.put(JSONObject().put("functionDeclarations", funcDecls))
-        }
-
-        if (app.isToolEnabled("chat", "google_search")) {
-            toolsArr.put(JSONObject().put("google_search", JSONObject()))
-        }
-
-        return toolsArr
     }
 
     // -----------------------------------------------------------------------

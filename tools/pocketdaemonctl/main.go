@@ -216,8 +216,10 @@ func runSetup(args []string) error {
 	apiKey := fs.String("api-key", "", "API key for selected provider")
 	geminiKey := fs.String("gemini-api-key", "", "Gemini API key")
 	xaiKey := fs.String("xai-api-key", "", "xAI API key")
+	anthropicKey := fs.String("anthropic-api-key", "", "Anthropic API key (Claude reasoning and the ask_fable tool)")
 	model := fs.String("model", "", "voice model")
 	voice := fs.String("voice", "", "voice name")
+	thinkingLevel := fs.String("thinking-level", "", "Gemini live thinking: off, minimal, low, medium, or high (gemini-3.8-live does not accept a level)")
 	apply := fs.Bool("apply", false, "apply flags without opening the browser UI")
 	addr := fs.String("addr", "127.0.0.1:0", "localhost listen address")
 	noBrowser := fs.Bool("no-browser", false, "print URL instead of opening browser")
@@ -231,7 +233,10 @@ func runSetup(args []string) error {
 	if err != nil {
 		return err
 	}
-	mergeNonInteractive(state.Config, *provider, *apiKey, *geminiKey, *xaiKey, *model, *voice)
+	if *thinkingLevel != "" && !validThinkingLevelFlag(*thinkingLevel) {
+		return fmt.Errorf("invalid --thinking-level %q: use off, minimal, low, medium, or high", *thinkingLevel)
+	}
+	mergeNonInteractive(state.Config, *provider, *apiKey, *geminiKey, *xaiKey, *anthropicKey, *model, *voice, *thinkingLevel)
 	if *apply {
 		if err := pushSetupState(device.Serial, setupPayload{
 			Config:          state.Config,
@@ -466,7 +471,7 @@ func pushSetupState(serial string, payload setupPayload) error {
 	return nil
 }
 
-func mergeNonInteractive(config map[string]any, provider, apiKey, geminiKey, xaiKey, model, voice string) {
+func mergeNonInteractive(config map[string]any, provider, apiKey, geminiKey, xaiKey, anthropicKey, model, voice, thinkingLevel string) {
 	normalizeConfig(config)
 	agents := asMap(config["agents"])
 	providers := asMap(config["providers"])
@@ -485,6 +490,9 @@ func mergeNonInteractive(config map[string]any, provider, apiKey, geminiKey, xai
 	if xaiKey != "" {
 		asMap(providers["xai"])["apiKey"] = xaiKey
 	}
+	if anthropicKey != "" {
+		asMap(providers["anthropic"])["apiKey"] = anthropicKey
+	}
 	if model != "" {
 		voiceAgent["model"] = model
 	} else if provider != "" {
@@ -496,22 +504,63 @@ func mergeNonInteractive(config map[string]any, provider, apiKey, geminiKey, xai
 	if voice != "" {
 		voiceAgent["voice"] = voice
 	}
+	if thinkingLevel != "" {
+		level := strings.ToLower(strings.TrimSpace(thinkingLevel))
+		if level == "off" {
+			voiceAgent["thinking"] = false
+		} else {
+			voiceAgent["thinking"] = true
+			voiceAgent["thinkingLevel"] = level
+		}
+	}
 	config["providers"] = providers
 	config["agents"] = agents
 	normalizeConfig(config)
 }
 
+const (
+	defaultGeminiLiveModel = "gemini-3.8-live"
+	defaultXaiVoiceModel   = "grok-voice-think-fast-1.0"
+	defaultReasoningModel  = "gemini-3.1-pro-preview"
+	defaultXaiTextModel    = "grok-4.6"
+	defaultAnthropicModel  = "claude-opus-5"
+	defaultFableModel      = "claude-fable-5-1"
+	defaultFableEffort     = "medium"
+	defaultThinkingLevel   = "low"
+)
+
+// REST roles that may run on any provider with a key.
+var reasoningRoles = []string{"chat", "expert", "scheduler", "memory"}
+
+var effortLevels = map[string]bool{"low": true, "medium": true, "high": true}
+
+var modelFamilies = map[string]string{"gemini": "gemini-", "xai": "grok-", "anthropic": "claude-"}
+
+// Older Gemini live models are upgraded to defaultGeminiLiveModel on normalize.
+var legacyGeminiLiveModels = map[string]bool{"gemini-3.1-flash-live-preview": true}
+
+var thinkingLevels = map[string]bool{"minimal": true, "low": true, "medium": true, "high": true}
+
 func defaultConfig() map[string]any {
 	return map[string]any{
 		"providers": map[string]any{
-			"gemini": map[string]any{"apiKey": ""},
-			"xai":    map[string]any{"apiKey": ""},
+			"gemini":    map[string]any{"apiKey": ""},
+			"xai":       map[string]any{"apiKey": ""},
+			"anthropic": map[string]any{"apiKey": ""},
 		},
 		"agents": map[string]any{
-			"voice":     map[string]any{"provider": "gemini", "model": "gemini-3.1-flash-live-preview", "voice": "Kore"},
-			"expert":    map[string]any{"provider": "gemini", "model": "gemini-3.1-flash-live-preview"},
-			"scheduler": map[string]any{"provider": "gemini", "model": "gemini-3.1-flash-live-preview"},
-			"memory":    map[string]any{"provider": "gemini", "model": "gemini-3.1-flash-live-preview"},
+			"voice": map[string]any{
+				"provider":      "gemini",
+				"model":         defaultGeminiLiveModel,
+				"voice":         "Kore",
+				"thinking":      false,
+				"thinkingLevel": defaultThinkingLevel,
+			},
+			"chat":      map[string]any{"provider": "gemini", "model": defaultReasoningModel},
+			"expert":    map[string]any{"provider": "gemini", "model": defaultReasoningModel},
+			"scheduler": map[string]any{"provider": "gemini", "model": defaultReasoningModel},
+			"memory":    map[string]any{"provider": "gemini", "model": defaultReasoningModel},
+			"fable":     map[string]any{"provider": "anthropic", "model": defaultFableModel, "effort": defaultFableEffort},
 		},
 		"ownerName":   "Phone owner",
 		"agentName":   "",
@@ -532,6 +581,9 @@ func normalizeConfig(config map[string]any) {
 	if _, ok := providers["xai"]; !ok {
 		providers["xai"] = map[string]any{"apiKey": stringValue(config["xaiApiKey"])}
 	}
+	if _, ok := providers["anthropic"]; !ok {
+		providers["anthropic"] = map[string]any{"apiKey": stringValue(config["anthropicApiKey"])}
+	}
 	gemini := asMap(providers["gemini"])
 	if gemini["apiKey"] == nil || fmt.Sprint(gemini["apiKey"]) == "" {
 		gemini["apiKey"] = stringValue(config["apiKey"])
@@ -540,8 +592,13 @@ func normalizeConfig(config map[string]any) {
 	if xai["apiKey"] == nil {
 		xai["apiKey"] = stringValue(config["xaiApiKey"])
 	}
+	anthropic := asMap(providers["anthropic"])
+	if anthropic["apiKey"] == nil {
+		anthropic["apiKey"] = stringValue(config["anthropicApiKey"])
+	}
 	providers["gemini"] = gemini
 	providers["xai"] = xai
+	providers["anthropic"] = anthropic
 
 	voice := asMap(agents["voice"])
 	provider := normalizeProvider(firstString(voice["provider"], config["voiceProvider"], "gemini"))
@@ -552,13 +609,35 @@ func normalizeConfig(config map[string]any) {
 	}
 	voice["model"] = model
 	voice["voice"] = firstString(voice["voice"], config["voice"], defaultVoice(provider))
+	// Thinking is opt-in; the app only sends thinkingConfig to Gemini Live when it is enabled.
+	voice["thinking"] = boolValue(voice["thinking"])
+	level := strings.ToLower(firstString(voice["thinkingLevel"], defaultThinkingLevel))
+	if !thinkingLevels[level] {
+		level = defaultThinkingLevel
+	}
+	voice["thinkingLevel"] = level
 	agents["voice"] = voice
-	for _, role := range []string{"expert", "scheduler", "memory"} {
+	for _, role := range reasoningRoles {
 		roleCfg := asMap(agents[role])
-		roleCfg["provider"] = normalizeProvider(firstString(roleCfg["provider"], "gemini"))
-		roleCfg["model"] = firstString(roleCfg["model"], "gemini-3.1-flash-live-preview")
+		rp := normalizeReasoningProvider(firstString(roleCfg["provider"], "gemini"))
+		roleCfg["provider"] = rp
+		roleCfg["model"] = reasoningModelOrDefault(rp, firstString(roleCfg["model"]))
 		agents[role] = roleCfg
 	}
+	// Fable is always Claude; the model must be a Claude model and effort must be a known level.
+	fable := asMap(agents["fable"])
+	fable["provider"] = "anthropic"
+	fableModel := firstString(fable["model"])
+	if !strings.HasPrefix(fableModel, "claude-") {
+		fableModel = defaultFableModel
+	}
+	fable["model"] = fableModel
+	fableEffort := strings.ToLower(firstString(fable["effort"]))
+	if !effortLevels[fableEffort] {
+		fableEffort = defaultFableEffort
+	}
+	fable["effort"] = fableEffort
+	agents["fable"] = fable
 	config["providers"] = providers
 	config["agents"] = agents
 	config["apiKey"] = fmt.Sprint(gemini["apiKey"])
@@ -607,9 +686,9 @@ func normalizeProvider(provider string) string {
 
 func defaultModel(provider string) string {
 	if provider == "xai" {
-		return "grok-voice-think-fast-1.0"
+		return defaultXaiVoiceModel
 	}
-	return "gemini-3.1-flash-live-preview"
+	return defaultGeminiLiveModel
 }
 
 func modelNeedsDefault(provider, model string) bool {
@@ -620,7 +699,55 @@ func modelNeedsDefault(provider, model string) bool {
 	if provider == "xai" {
 		return model == "grok-voice-fast-1.0" || strings.HasPrefix(model, "gemini-")
 	}
-	return strings.HasPrefix(model, "grok-voice-")
+	return legacyGeminiLiveModels[model] || strings.HasPrefix(model, "grok-voice-")
+}
+
+// normalizeReasoningProvider accepts gemini, xai, or anthropic (claude) for REST roles.
+func normalizeReasoningProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "xai":
+		return "xai"
+	case "anthropic", "claude":
+		return "anthropic"
+	}
+	return "gemini"
+}
+
+func reasoningDefaultModel(provider string) string {
+	switch provider {
+	case "xai":
+		return defaultXaiTextModel
+	case "anthropic":
+		return defaultAnthropicModel
+	}
+	return defaultReasoningModel
+}
+
+// reasoningModelOrDefault keeps a REST role's model only when it is a text model from the
+// provider's own family; live/voice ids and other families fall back to the provider default.
+func reasoningModelOrDefault(provider, model string) string {
+	model = strings.TrimSpace(model)
+	family := modelFamilies[provider]
+	if model == "" || strings.Contains(model, "-live") || strings.HasPrefix(model, "grok-voice-") || !strings.HasPrefix(model, family) {
+		return reasoningDefaultModel(provider)
+	}
+	return model
+}
+
+func boolValue(v any) bool {
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		return strings.EqualFold(strings.TrimSpace(b), "true")
+	default:
+		return false
+	}
+}
+
+func validThinkingLevelFlag(v string) bool {
+	v = strings.ToLower(strings.TrimSpace(v))
+	return v == "off" || thinkingLevels[v]
 }
 
 func defaultVoice(provider string) string {
@@ -985,7 +1112,8 @@ section{background:#fff;border:1px solid #d9dfd7;border-radius:8px;padding:16px}
 label{display:block;font-size:12px;font-weight:700;color:#4a5650;margin:12px 0 6px}
 input,select,textarea{width:100%;box-sizing:border-box;border:1px solid #c8d0c6;border-radius:6px;background:#fbfcfa;color:#16201b;font:inherit;padding:9px}
 textarea{min-height:132px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.help{font-size:12px;color:#8a8a8a;margin:4px 0 0}.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
 button{border:1px solid #7c8b7f;background:#fff;color:#16201b;border-radius:6px;padding:9px 12px;font-weight:700;cursor:pointer}
 button.primary{background:#196b4f;border-color:#196b4f;color:white}.tabs button.active{background:#e3eee7;border-color:#196b4f}
 .warn{background:#fff7db;border:1px solid #ead78b;border-radius:6px;padding:10px;color:#51420b;font-size:13px;margin:8px 0}
@@ -1001,7 +1129,14 @@ button.primary{background:#196b4f;border-color:#196b4f;color:white}.tabs button.
 <label>Provider</label><select id="provider" onchange="providerChanged()"><option value="gemini">Gemini</option><option value="xai">xAI</option></select>
 <label>Gemini API Key</label><input id="geminiKey" type="password" autocomplete="off">
 <label>xAI API Key</label><input id="xaiKey" type="password" autocomplete="off">
-<div class="row"><div><label>Model</label><input id="model"></div><div><label>Voice</label><select id="voice"></select></div></div>
+<label>Anthropic API Key</label><input id="anthropicKey" type="password" autocomplete="off">
+<div class="row"><div><label>Model</label><input id="model" placeholder="gemini-3.8-live" oninput="modelChanged()"></div><div><label>Voice</label><select id="voice"></select></div></div>
+<div class="row" id="thinkingRow"><div><label>Thinking</label><select id="thinking"><option value="false">Off (default)</option><option value="true">On</option></select></div><div><label>Thinking Level</label><select id="thinkingLevel"><option value="minimal">minimal</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></div></div>
+<p class="help" id="thinkingHelp">Not supported on gemini-3.8-live (ignored). Use gemini-3.8-live-extended-thinking for a configurable thinking level.</p>
+<h2 style="margin-top:18px">Reasoning</h2>
+<div class="row"><div><label>Provider (chat, expert, scheduler, memory)</label><select id="reasoningProvider" onchange="reasoningProviderChanged()"><option value="gemini">Gemini</option><option value="xai">xAI</option><option value="anthropic">Claude</option></select></div><div><label>Model</label><input id="reasoningModel" placeholder="gemini-3.1-pro-preview"></div></div>
+<div class="row"><div><label>Fable Model</label><input id="fableModel" placeholder="claude-fable-5-1"></div><div><label>Fable Effort</label><select id="fableEffort"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></div></div>
+<p class="help">Fable (the ask_fable tool) always uses Claude with web search and needs the Anthropic key. Reasoning roles fall back to any provider that has a key.</p>
 <h2 style="margin-top:18px">Identity</h2>
 <label>Owner Name</label><input id="ownerName">
 <label>Agent Name</label><input id="agentName">
@@ -1030,11 +1165,16 @@ const geminiVoices={Zephyr:'Bright',Kore:'Firm',Orus:'Firm',Autonoe:'Bright',Umb
 const xaiVoices={eve:'Energetic',ara:'Warm',rex:'Clear',sal:'Balanced',leo:'Authoritative'};
 let state=null;
 function voices(){return provider.value==='xai'?xaiVoices:geminiVoices}
-function providerChanged(){const prev=voice.value; voice.innerHTML=''; Object.entries(voices()).forEach(([k,v])=>voice.add(new Option(k+' - '+v,k))); if([...voice.options].some(o=>o.value===prev)) voice.value=prev; else voice.value=provider.value==='xai'?'eve':'Kore'; if(!model.value || (provider.value==='xai' && model.value.startsWith('gemini-')) || (provider.value==='gemini' && model.value.startsWith('grok-voice-'))) model.value=provider.value==='xai'?'grok-voice-think-fast-1.0':'gemini-3.1-flash-live-preview'}
+function legacyModel(){const m=model.value.trim(); return !m || (provider.value==='xai' && m.startsWith('gemini-')) || (provider.value==='gemini' && (m.startsWith('grok-voice-') || m==='gemini-3.1-flash-live-preview'))}
+function modelChanged(){const m=model.value.trim(); const gem=provider.value==='gemini'; thinkingRow.style.display=gem?'':'none'; thinkingHelp.style.display=(gem && m.startsWith('gemini-3.8-live') && !m.includes('extended-thinking'))?'':'none'}
+function providerChanged(){const prev=voice.value; voice.innerHTML=''; Object.entries(voices()).forEach(([k,v])=>voice.add(new Option(k+' - '+v,k))); if([...voice.options].some(o=>o.value===prev)) voice.value=prev; else voice.value=provider.value==='xai'?'eve':'Kore'; if(legacyModel()) model.value=provider.value==='xai'?'grok-voice-think-fast-1.0':'gemini-3.8-live'; modelChanged()}
+const reasoningDefaults={gemini:'gemini-3.1-pro-preview',xai:'grok-4.6',anthropic:'claude-opus-5'};
+const reasoningFamilies={gemini:'gemini-',xai:'grok-',anthropic:'claude-'};
+function reasoningProviderChanged(){const m=reasoningModel.value.trim(); const p=reasoningProvider.value; if(!m || !m.startsWith(reasoningFamilies[p])) reasoningModel.value=reasoningDefaults[p]}
 function tab(id){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id)); ['prompt','soul','contacts','tasks','memory','skills'].forEach(x=>document.getElementById(x).hidden=x!==id)}
-async function load(){const r=await fetch('/api/state'); state=await r.json(); const c=state.config||{}, p=c.providers||{}, a=c.agents||{}, va=a.voice||{}; provider.value=va.provider||c.voiceProvider||'gemini'; providerChanged(); geminiKey.value=(p.gemini&&p.gemini.apiKey)||c.apiKey||''; xaiKey.value=(p.xai&&p.xai.apiKey)||''; model.value=va.model||c.model||model.value; voice.value=va.voice||c.voice||voice.value; ownerName.value=c.ownerName||''; agentName.value=c.agentName||''; agentRole.value=c.agentRole||''; callPrompt.value=state.callPrompt||''; soulText.value=state.soul||''; trustedContacts.value=JSON.stringify(state.trustedContacts||[],null,2); scheduledTasks.value=state.scheduledTasks||'[]'; memoryFiles.value=JSON.stringify(state.memoryFiles||{},null,2); skillsFiles.value=JSON.stringify(state.skills||{},null,2); diagnostics.textContent=(state.diagnostics||[]).join('\n'); status.textContent='Connected to '+state.deviceSerial}
+async function load(){const r=await fetch('/api/state'); state=await r.json(); const c=state.config||{}, p=c.providers||{}, a=c.agents||{}, va=a.voice||{}; provider.value=va.provider||c.voiceProvider||'gemini'; providerChanged(); geminiKey.value=(p.gemini&&p.gemini.apiKey)||c.apiKey||''; xaiKey.value=(p.xai&&p.xai.apiKey)||''; anthropicKey.value=(p.anthropic&&p.anthropic.apiKey)||''; const ca=a.chat||{}, fa=a.fable||{}; reasoningProvider.value=ca.provider||'gemini'; reasoningModel.value=ca.model||reasoningDefaults[reasoningProvider.value]; fableModel.value=fa.model||'claude-fable-5-1'; fableEffort.value=fa.effort||'medium'; model.value=va.model||c.model||model.value; if(legacyModel()) model.value=provider.value==='xai'?'grok-voice-think-fast-1.0':'gemini-3.8-live'; thinking.value=va.thinking===true?'true':'false'; thinkingLevel.value=va.thinkingLevel||'low'; modelChanged(); voice.value=va.voice||c.voice||voice.value; ownerName.value=c.ownerName||''; agentName.value=c.agentName||''; agentRole.value=c.agentRole||''; callPrompt.value=state.callPrompt||''; soulText.value=state.soul||''; trustedContacts.value=JSON.stringify(state.trustedContacts||[],null,2); scheduledTasks.value=state.scheduledTasks||'[]'; memoryFiles.value=JSON.stringify(state.memoryFiles||{},null,2); skillsFiles.value=JSON.stringify(state.skills||{},null,2); diagnostics.textContent=(state.diagnostics||[]).join('\n'); status.textContent='Connected to '+state.deviceSerial}
 function parseJSON(id,label){try{return JSON.parse(document.getElementById(id).value||'null')}catch(e){throw new Error(label+': '+e.message)}}
-async function save(){try{status.textContent='Saving'; const config=state.config||{}; config.providers={gemini:{apiKey:geminiKey.value.trim()},xai:{apiKey:xaiKey.value.trim()}}; config.agents=config.agents||{}; config.agents.voice={provider:provider.value,model:model.value.trim(),voice:voice.value}; config.ownerName=ownerName.value.trim(); config.agentName=agentName.value.trim(); config.agentRole=agentRole.value.trim(); const payload={config,callPrompt:callPrompt.value,soul:soulText.value,trustedContacts:parseJSON('trustedContacts','Trusted contacts'),scheduledTasks:scheduledTasks.value,memoryFiles:parseJSON('memoryFiles','Memory files'),skills:parseJSON('skillsFiles','Skills')}; const r=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); if(!r.ok) throw new Error(await r.text()); const out=await r.json(); diagnostics.textContent=(out.diagnostics||[]).join('\n'); status.textContent='Saved and app restarted'}catch(e){status.textContent='Save failed'; alert(e.message)}}
+async function save(){try{status.textContent='Saving'; const config=state.config||{}; config.providers={gemini:{apiKey:geminiKey.value.trim()},xai:{apiKey:xaiKey.value.trim()},anthropic:{apiKey:anthropicKey.value.trim()}}; config.agents=config.agents||{}; config.agents.voice={provider:provider.value,model:model.value.trim(),voice:voice.value,thinking:thinking.value==='true',thinkingLevel:thinkingLevel.value}; ['chat','expert','scheduler','memory'].forEach(r=>{config.agents[r]={provider:reasoningProvider.value,model:reasoningModel.value.trim()}}); config.agents.fable={provider:'anthropic',model:fableModel.value.trim(),effort:fableEffort.value}; config.ownerName=ownerName.value.trim(); config.agentName=agentName.value.trim(); config.agentRole=agentRole.value.trim(); const payload={config,callPrompt:callPrompt.value,soul:soulText.value,trustedContacts:parseJSON('trustedContacts','Trusted contacts'),scheduledTasks:scheduledTasks.value,memoryFiles:parseJSON('memoryFiles','Memory files'),skills:parseJSON('skillsFiles','Skills')}; const r=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); if(!r.ok) throw new Error(await r.text()); const out=await r.json(); diagnostics.textContent=(out.diagnostics||[]).join('\n'); status.textContent='Saved and app restarted'}catch(e){status.textContent='Save failed'; alert(e.message)}}
 load();
 </script>
 </body>
