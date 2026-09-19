@@ -296,6 +296,7 @@ skills, and personal configuration. Do not commit or share them.
 | Root is unavailable through ADB | Confirm Magisk root is installed and ADB shell has root access, or install the module manually in Magisk. |
 | Magisk CLI install fails | Use Magisk app > Modules > Install from storage, then reboot. |
 | App is missing after reboot | Re-flash the module, reboot again, then verify `/data/adb/modules/pocketdaemon/`. |
+| `pm path` is empty after a flash and logcat says `System package ... no longer exists; its data will be wiped` | The APK in the zip was unsigned (no `android/key.properties` and no debug fallback). Check with `apksigner verify --print-certs`; every shipped module is signed with the Android debug key, so re-sign or rebuild, repackage, and re-flash. |
 | Permissions are not granted | Run `adb shell su -c "sh /data/adb/modules/pocketdaemon/service.sh"` and restart the app. |
 | Magisk reports abnormal state | Re-check that the patched image matches the exact device build. |
 | Bootloop after patching | Boot fastboot, flash the stock matching image back to `init_boot` or `boot`, then re-check Magisk/device compatibility. |

@@ -48,8 +48,13 @@ android {
 
     buildTypes {
         release {
-            if (keystorePropertiesFile.exists()) {
-                signingConfig = signingConfigs.getByName("release")
+            // Without a release keystore the APK must still be signed: an unsigned priv-app is rejected by
+            // the package manager at boot and the app disappears. Every module shipped so far used the
+            // debug key, so fall back to it to keep updates installable over earlier builds.
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
             }
         }
     }
