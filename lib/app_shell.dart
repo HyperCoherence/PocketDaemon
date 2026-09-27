@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'models.dart';
+import 'recording_events.dart';
 import 'theme/tokens.dart';
 import 'utils.dart';
 import 'widgets/glass_nav_bar.dart';
@@ -210,6 +211,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       if (id.isNotEmpty) _openNoteById(id);
       return;
     }
+    if (type == 'recordingPlayback' || type == 'recordingTranscription') {
+      RecordingEvents.push(event.map((k, v) => MapEntry(k.toString(), v)));
+      return;
+    }
 
     setState(() {
       switch (type) {
@@ -223,9 +228,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           final callerLabel = callerName.isNotEmpty
               ? '$callerName${trusted ? ' (trusted)' : ''}'
               : event['number']?.toString() ?? '';
-          _callStatus = 'Agent handling: $callerLabel';
-          _takenOver = false;
-          _addLog('Call answered: $callerLabel');
+          if (event['manual'] == true) {
+            // A call the owner is on themselves; the agent stays out unless handed the call.
+            _callStatus = 'On call: $callerLabel';
+            _takenOver = true;
+            _addLog('On call, agent standing by: $callerLabel');
+          } else {
+            _callStatus = 'Agent handling: $callerLabel';
+            _takenOver = false;
+            _addLog('Agent on call: $callerLabel');
+          }
         case 'callTakenOver':
           _takenOver = true;
           _callStatus = 'You are on call: ${event['number']}';
@@ -430,6 +442,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     await _control.invokeMethod('hangUpCall');
   }
 
+  Future<void> _handCallToAgent() async {
+    HapticFeedback.mediumImpact();
+    await _control.invokeMethod('handCallToAgent');
+  }
+
   Future<void> _startTextChat() async {
     if (_textChatActive) return;
     setState(() => _textChatWaiting = true);
@@ -531,6 +548,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       onEndConversation: _endConversation,
                       onTakeOver: _takeOverCall,
                       onHangUp: _hangUpCall,
+                      onHandToAgent: _handCallToAgent,
                       onSendImage: _sendVoiceImage,
                       control: _control,
                     ),

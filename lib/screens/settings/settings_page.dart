@@ -11,6 +11,7 @@ import 'scheduled_tasks_page.dart';
 import 'trusted_contacts_page.dart';
 import 'memory_page.dart';
 import 'recordings_page.dart';
+import 'recording_library_page.dart';
 
 class SettingsPage extends StatelessWidget {
   final Map<String, bool> permissions;
@@ -160,6 +161,17 @@ class SettingsPage extends StatelessWidget {
                   onTap: () => Navigator.push(
                     context,
                     slideRoute(RecordingsPage(control: control)),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SettingsRow(
+                  icon: Icons.library_music_rounded,
+                  title: 'Recording Library',
+                  subtitle: 'Play, review and transcribe recordings',
+                  accentColor: PremiumTokens.accentPrimary,
+                  onTap: () => Navigator.push(
+                    context,
+                    slideRoute(RecordingLibraryPage(control: control)),
                   ),
                 ),
               ],

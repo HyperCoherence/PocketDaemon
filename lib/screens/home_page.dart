@@ -29,6 +29,7 @@ class HomePage extends StatefulWidget {
   final VoidCallback onEndConversation;
   final VoidCallback onTakeOver;
   final VoidCallback onHangUp;
+  final VoidCallback onHandToAgent;
   final VoiceImageSender onSendImage;
   final MethodChannel control;
 
@@ -50,6 +51,7 @@ class HomePage extends StatefulWidget {
     required this.onEndConversation,
     required this.onTakeOver,
     required this.onHangUp,
+    required this.onHandToAgent,
     required this.onSendImage,
     required this.control,
   });
@@ -776,6 +778,32 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ),
             ),
             const SizedBox(height: 10),
+            if (widget.configured) ...[
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: OutlinedButton.icon(
+                  onPressed: widget.onHandToAgent,
+                  icon: const Icon(Icons.support_agent_rounded),
+                  label: Text(
+                    'Hand to ${widget.agentName.isNotEmpty ? widget.agentName : 'Agent'}',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: PremiumTokens.accentPrimary,
+                    backgroundColor: PremiumTokens.surfaceGlass,
+                    side: const BorderSide(color: PremiumTokens.borderGlass),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(PremiumTokens.radiusLg),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             SizedBox(
               width: double.infinity,
               height: 50,

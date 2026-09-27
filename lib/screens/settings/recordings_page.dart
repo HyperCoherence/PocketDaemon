@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/tokens.dart';
 import '../../utils.dart';
+import '../../widgets/premium_button.dart';
+import 'recording_library_page.dart';
 
 class RecordingsPage extends StatefulWidget {
   final MethodChannel control;
@@ -12,9 +14,9 @@ class RecordingsPage extends StatefulWidget {
 
 class _RecordingsPageState extends State<RecordingsPage> {
   bool _loaded = false;
-  bool _recordAgentCalls = false;
+  bool _recordAgentCalls = true;
   bool _recordAgentConversations = false;
-  bool _recordPhoneCalls = false;
+  bool _recordPhoneCalls = true;
 
   @override
   void initState() {
@@ -56,6 +58,15 @@ class _RecordingsPageState extends State<RecordingsPage> {
       ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          PremiumButton(
+            label: 'Open Recording Library',
+            icon: Icons.library_music_rounded,
+            onPressed: () => Navigator.push(
+              context,
+              slideRoute(RecordingLibraryPage(control: widget.control)),
+            ),
+          ),
+          const SizedBox(height: 14),
           sectionCard(
             context,
             title: 'Agent Recordings',

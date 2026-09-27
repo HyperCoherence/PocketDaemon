@@ -11,6 +11,9 @@ object GeminiModels {
     /** REST model used by the text chat, expert, scheduler, and memory roles. */
     const val DEFAULT_REASONING = "gemini-3.1-pro-preview"
 
+    /** Speech-to-text model for saved recordings, called through the Interactions API. */
+    const val TRANSCRIBE = "gemini-3.5-transcribe"
+
     /** Older live models that config normalization upgrades to [DEFAULT_LIVE]. */
     val LEGACY_LIVE = setOf("gemini-3.1-flash-live-preview")
 

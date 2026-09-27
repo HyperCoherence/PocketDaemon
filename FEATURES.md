@@ -18,7 +18,7 @@ Incoming calls route through two distinct agent profiles based on caller number.
 
 ## Barge-In and Take-Over
 
-Barge-in: the agent detects when the caller starts speaking and flushes its playback queue immediately. Human take-over at any time. Tap to stop the agent mid-call, unmute yourself, resume as a normal phone call with optional recording.
+Barge-in: the agent detects when the caller starts speaking and flushes its playback queue immediately. Human take-over at any time. Tap to stop the agent mid-call, unmute yourself, resume as a normal phone call with optional recording. Calls you dial yourself stay yours: the agent only joins a manual call when you tap Hand to Agent, and you can take it back at any point.
 
 ## Outbound Calling from Chat
 
@@ -58,7 +58,9 @@ Extensible skill modules stored as markdown with YAML frontmatter under /sdcard/
 
 ## Call Recording
 
-Three independent modes: agent-handled calls, agent voice conversations, and human phone calls. Fallback source selection across VOICE_CALL, VOICE_DOWNLINK, VOICE_COMMUNICATION, and MIC. Per-mode toggles in settings.
+Three independent modes: agent-handled calls, agent voice conversations, and human phone calls. Agent calls and phone calls record by default; voice conversations are opt-in. Fallback source selection across VOICE_CALL, VOICE_DOWNLINK, VOICE_COMMUNICATION, and MIC. Per-mode toggles in settings.
+
+The Recording Library in settings lists every saved WAV with its type, duration and, where a session log matches, the contact. Each recording opens into a player with seek, the file details, and a transcript panel. Transcription runs on `gemini-3.5-transcribe` through the Files and Interactions APIs with the same Gemini key the voice agent uses; recordings up to 30 minutes get speaker labels, longer ones use smart mode. Transcripts are stored next to the audio as `<name>.transcript.json`.
 
 ## Camera Integration
 

@@ -23,6 +23,7 @@ class PocketDaemonInCallService : InCallService() {
         private const val NOTIF_ID = 1
         const val ACTION_TAKE_OVER = "takeOverCall"
         const val ACTION_HANG_UP = "hangUpCall"
+        const val ACTION_HAND_TO_AGENT = "handCallToAgent"
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -34,6 +35,14 @@ class PocketDaemonInCallService : InCallService() {
     private var outboundBridgedCall: Call? = null
     private var pendingAnswer: Runnable? = null
     private val takenOverCalls = HashSet<Call>()
+    /** Calls the owner is on themselves: outgoing calls they dialed, and incoming calls answered while the agent is off. */
+    private val manualCalls = HashSet<Call>()
+    /** Calls seen ringing, i.e. incoming. Direction fallback for devices below API 29. */
+    private val ringingCalls = HashSet<Call>()
+    /** Every call Telecom handed us that has not disconnected yet, so the UI gets a callEnded for each one. */
+    private val knownCalls = HashSet<Call>()
+    /** Take-overs whose agent audio is still being released; hand-offs wait for this to reach zero. */
+    private var releasingTakeovers = 0
 
     private var phoneRecorder: AudioRecorder? = null
     private var phoneAudioRecord: AudioRecord? = null
@@ -45,6 +54,7 @@ class PocketDaemonInCallService : InCallService() {
             when (action) {
                 ACTION_TAKE_OVER -> takeOverActiveCall()
                 ACTION_HANG_UP -> hangUpActiveCall()
+                ACTION_HAND_TO_AGENT -> handCallToAgent()
             }
         }
     }
@@ -73,6 +83,7 @@ class PocketDaemonInCallService : InCallService() {
         Log.i(TAG, "onCallAdded: $number")
         app.emitEvent("callAdded", mapOf("number" to number))
 
+        knownCalls.add(call)
         call.registerCallback(callCallback)
         handleStateChange(call)
     }
@@ -84,14 +95,35 @@ class PocketDaemonInCallService : InCallService() {
         handleStateChange(call)
     }
 
-    private fun handleStateChange(call: Call) {
-        val state = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    private fun stateOf(call: Call): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             call.details.state
         } else {
             @Suppress("DEPRECATION")
             call.state
         }
+    }
 
+    /** True when the owner dialed this call. Incoming calls always pass through RINGING first. */
+    private fun isOutgoingCall(call: Call): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            when (call.details?.callDirection) {
+                Call.Details.DIRECTION_OUTGOING -> return true
+                Call.Details.DIRECTION_INCOMING -> return false
+            }
+        }
+        return !ringingCalls.contains(call)
+    }
+
+    private fun isTracked(call: Call): Boolean {
+        return outboundBridgedCall == call
+            || sessions.containsKey(call)
+            || takenOverCalls.contains(call)
+            || manualCalls.contains(call)
+    }
+
+    private fun handleStateChange(call: Call) {
+        val state = stateOf(call)
         val number = call.details?.handle?.schemeSpecificPart ?: "unknown"
 
         if (state != Call.STATE_RINGING) {
@@ -101,6 +133,7 @@ class PocketDaemonInCallService : InCallService() {
 
         when (state) {
             Call.STATE_RINGING -> {
+                ringingCalls.add(call)
                 app.emitEvent("callRinging", mapOf("number" to number))
                 if (app.agentEnabled) {
                     Log.i(TAG, "Agent enabled — auto-answer in ${app.answerDelayMs}ms")
@@ -121,10 +154,7 @@ class PocketDaemonInCallService : InCallService() {
 
             Call.STATE_ACTIVE -> {
                 val bridge = app.outboundBridge
-                if (!app.agentEnabled && bridge == null) {
-                    Log.i(TAG, "Agent disabled — passing call through")
-                    startPhoneCallRecording()
-                } else if (bridge != null && outboundBridgedCall == null) {
+                if (bridge != null && outboundBridgedCall == null) {
                     Log.i(TAG, "Outbound bridge call active: $number")
                     outboundBridgedCall = call
                     setMuted(true)
@@ -139,56 +169,24 @@ class PocketDaemonInCallService : InCallService() {
                         Unit
                     }
                     bridge.onOutboundCallActive(hangUp)
-                } else if (!sessions.containsKey(call) && outboundBridgedCall != call) {
-                    val resolved = contactResolver.resolve(number)
-                    app.emitEvent("callActive", mapOf(
-                        "number" to number,
-                        "name" to (resolved.displayName ?: ""),
-                        "trusted" to (resolved.trusted != null),
-                    ))
-                    setMuted(true)
-                    Log.i(TAG, "Mic muted — agent takes over")
-
-                    if (app.speakerMonitorEnabled) {
-                        routeMonitoredCallAudio()
-                        Log.i(TAG, "Call monitor enabled")
-                    } else {
-                        muteCallVolume()
-                    }
-
-                    val hangUp: () -> Unit = {
-                        Log.i(TAG, "Agent requested hangUp")
-                        handler.post { call.disconnect() }
-                        Unit
-                    }
-
-                    val session: ActiveCallSession = if (resolved.trusted != null) {
-                        Log.i(TAG, "Routing to TRUSTED session for ${resolved.trusted.name}")
-                        TrustedCallSession(
-                            context = applicationContext,
-                            callerNumber = number,
-                            callerConfig = resolved.trusted,
-                            onHangUp = hangUp,
-                        )
-                    } else {
-                        Log.i(TAG, "Routing to ISOLATED session for $number")
-                        CallSession(
-                            context = applicationContext,
-                            callerNumber = number,
-                            callerName = resolved.displayName,
-                            onHangUp = hangUp,
-                        )
-                    }
-
-                    activeCallerLabel = resolved.displayName ?: resolved.trusted?.name
-                    sessions[call] = session
-                    updateForeground()
-                    session.start()
+                } else if (isTracked(call)) {
+                    // Already handled; e.g. resumed from hold.
+                } else if (isOutgoingCall(call)) {
+                    // The owner dialed this one. The agent only joins if they hand it over.
+                    Log.i(TAG, "Manual outgoing call - agent stays out: $number")
+                    beginManualCall(call, number)
+                } else if (!app.agentEnabled) {
+                    Log.i(TAG, "Agent disabled - passing call through")
+                    beginManualCall(call, number)
+                } else {
+                    startAgentSession(call, number)
                 }
             }
 
             Call.STATE_DISCONNECTING, Call.STATE_DISCONNECTED -> {
                 stopPhoneCallRecording()
+                ringingCalls.remove(call)
+                val wasKnown = knownCalls.remove(call)
                 if (outboundBridgedCall == call) {
                     Log.i(TAG, "Outbound bridge call disconnected: $number")
                     outboundBridgedCall = null
@@ -200,6 +198,9 @@ class PocketDaemonInCallService : InCallService() {
                     Log.i(TAG, "Taken-over call disconnected: $number")
                     setMuted(false)
                     restoreCallVolume()
+                    app.emitEvent("callEnded", mapOf("number" to number))
+                } else if (manualCalls.remove(call)) {
+                    Log.i(TAG, "Manual call disconnected: $number")
                     app.emitEvent("callEnded", mapOf("number" to number))
                 } else {
                     val session = sessions.remove(call)
@@ -217,10 +218,104 @@ class PocketDaemonInCallService : InCallService() {
                             }
                         }.start()
                         app.emitEvent("callEnded", mapOf("number" to number))
+                    } else if (wasKnown) {
+                        // Never reached ACTIVE: declined, missed, or the far end gave up while ringing.
+                        Log.i(TAG, "Call ended before it was answered: $number")
+                        app.emitEvent("callEnded", mapOf("number" to number))
                     }
                 }
             }
         }
+    }
+
+    /** The owner is on this call themselves; the agent stays out until handed the call. */
+    private fun beginManualCall(call: Call, number: String) {
+        manualCalls.add(call)
+        val resolved = contactResolver.resolve(number)
+        app.emitEvent("callActive", mapOf(
+            "number" to number,
+            "name" to (resolved.displayName ?: ""),
+            "trusted" to (resolved.trusted != null),
+            "manual" to true,
+        ))
+        startPhoneCallRecording()
+    }
+
+    private fun startAgentSession(call: Call, number: String) {
+        stopPhoneCallRecording()
+        manualCalls.remove(call)
+        takenOverCalls.remove(call)
+
+        val resolved = contactResolver.resolve(number)
+        app.emitEvent("callActive", mapOf(
+            "number" to number,
+            "name" to (resolved.displayName ?: ""),
+            "trusted" to (resolved.trusted != null),
+            "manual" to false,
+        ))
+        setMuted(true)
+        Log.i(TAG, "Mic muted - agent takes over")
+
+        if (app.speakerMonitorEnabled) {
+            routeMonitoredCallAudio()
+            Log.i(TAG, "Call monitor enabled")
+        } else {
+            muteCallVolume()
+        }
+
+        val hangUp: () -> Unit = {
+            Log.i(TAG, "Agent requested hangUp")
+            handler.post { call.disconnect() }
+            Unit
+        }
+
+        val session: ActiveCallSession = if (resolved.trusted != null) {
+            Log.i(TAG, "Routing to TRUSTED session for ${resolved.trusted.name}")
+            TrustedCallSession(
+                context = applicationContext,
+                callerNumber = number,
+                callerConfig = resolved.trusted,
+                onHangUp = hangUp,
+            )
+        } else {
+            Log.i(TAG, "Routing to ISOLATED session for $number")
+            CallSession(
+                context = applicationContext,
+                callerNumber = number,
+                callerName = resolved.displayName,
+                onHangUp = hangUp,
+            )
+        }
+
+        activeCallerLabel = resolved.displayName ?: resolved.trusted?.name
+        sessions[call] = session
+        updateForeground()
+        session.start()
+    }
+
+    /** Owner-initiated: put the agent on a call the owner is currently on themselves. */
+    private fun handCallToAgent(attempt: Int = 0) {
+        val call = manualCalls.firstOrNull() ?: takenOverCalls.firstOrNull() ?: run {
+            Log.w(TAG, "handToAgent: no live call without an agent session")
+            return
+        }
+        val number = call.details?.handle?.schemeSpecificPart ?: "unknown"
+        if (stateOf(call) != Call.STATE_ACTIVE) {
+            Log.w(TAG, "handToAgent: call is not active")
+            return
+        }
+        if (releasingTakeovers > 0) {
+            // A previous take-over is still releasing the agent's audio; retry shortly.
+            if (attempt < 20) {
+                handler.postDelayed({ handCallToAgent(attempt + 1) }, 250)
+            } else {
+                Log.w(TAG, "handToAgent: gave up waiting for take-over cleanup")
+                app.emitEvent("error", mapOf("message" to "Agent audio is still busy; try again"))
+            }
+            return
+        }
+        Log.i(TAG, "Handing call to agent: $number")
+        startAgentSession(call, number)
     }
 
     private fun takeOverActiveCall() {
@@ -242,10 +337,12 @@ class PocketDaemonInCallService : InCallService() {
         setMuted(false)
         restoreCallVolume()
         Log.i(TAG, "Mic unmuted - owner is live")
+        releasingTakeovers++
         Thread({
             session.awaitTermination()
             Log.i(TAG, "Agent call resources released after takeover")
             handler.post {
+                releasingTakeovers--
                 if (takenOverCalls.contains(call)) startPhoneCallRecording()
             }
         }, "call-takeover-cleanup").start()

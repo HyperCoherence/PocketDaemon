@@ -47,9 +47,9 @@
   "memoryExtraction": true,
   "speakerMonitor": true,
   "bargeIn": true,
-  "recordAgentCalls": false,
+  "recordAgentCalls": true,
   "recordAgentConversations": false,
-  "recordPhoneCalls": false,
+  "recordPhoneCalls": true,
   "youtubeMinutes": 15,
   "systemPrompt": "You are a helpful phone assistant answering calls on behalf of the phone owner. Be concise and natural."
 }

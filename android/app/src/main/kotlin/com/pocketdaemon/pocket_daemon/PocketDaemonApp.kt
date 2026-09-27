@@ -535,13 +535,13 @@ class PocketDaemonApp : Application() {
         get() = configGet("assistantButton", false)
 
     val recordAgentCallsEnabled: Boolean
-        get() = configGet("recordAgentCalls", false)
+        get() = configGet("recordAgentCalls", true)
 
     val recordAgentConversationsEnabled: Boolean
         get() = configGet("recordAgentConversations", false)
 
     val recordPhoneCallsEnabled: Boolean
-        get() = configGet("recordPhoneCalls", false)
+        get() = configGet("recordPhoneCalls", true)
 
     val trustedContacts: List<TrustedContactConfig>
         get() = synchronized(configLock) {

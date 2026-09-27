@@ -36,6 +36,10 @@ class MainActivity : FlutterActivity() {
     private var textChatSession: TextChatSession? = null
     private var textureRegistry: TextureRegistry? = null
     private var viewfinder: CameraViewfinder? = null
+    private var recordingLibrary: RecordingLibrary? = null
+
+    private fun recordings(): RecordingLibrary =
+        recordingLibrary ?: RecordingLibrary(app).also { recordingLibrary = it }
 
     private val eventListener: (String, Map<String, Any?>) -> Unit = { type, data ->
         handler.post { emitToFlutter(type, data) }
@@ -188,6 +192,10 @@ class MainActivity : FlutterActivity() {
                         app.sendAction(PocketDaemonInCallService.ACTION_HANG_UP)
                         result.success(true)
                     }
+                    "handCallToAgent" -> {
+                        app.sendAction(PocketDaemonInCallService.ACTION_HAND_TO_AGENT)
+                        result.success(true)
+                    }
 
                     "startChat" -> {
                         if (chatSession?.active == true) {
@@ -295,6 +303,53 @@ class MainActivity : FlutterActivity() {
                         result.success(noteId)
                     }
                     "getSessionLogs" -> result.success(readSessionLogs())
+
+                    "getRecordings" -> {
+                        Thread {
+                            val list = try { recordings().list() } catch (e: Exception) {
+                                Log.w(TAG, "getRecordings failed: ${e.message}")
+                                emptyList()
+                            }
+                            handler.post { result.success(list) }
+                        }.start()
+                    }
+                    "getRecording" -> {
+                        val name = call.argument<String>("name") ?: ""
+                        Thread {
+                            val info = try { recordings().describe(name) } catch (e: Exception) { null }
+                            handler.post { result.success(info) }
+                        }.start()
+                    }
+                    "deleteRecording" -> {
+                        val name = call.argument<String>("name") ?: ""
+                        result.success(recordings().delete(name))
+                    }
+                    "transcribeRecording" -> {
+                        val name = call.argument<String>("name") ?: ""
+                        val error = recordings().transcribe(name)
+                        result.success(mapOf("started" to (error == null), "error" to (error ?: "")))
+                    }
+                    "playRecording" -> {
+                        val name = call.argument<String>("name") ?: ""
+                        result.success(recordings().play(name))
+                    }
+                    "pausePlayback" -> {
+                        recordings().pause()
+                        result.success(true)
+                    }
+                    "resumePlayback" -> {
+                        recordings().resume()
+                        result.success(true)
+                    }
+                    "seekPlayback" -> {
+                        recordings().seek(call.argument<Int>("positionMs") ?: 0)
+                        result.success(true)
+                    }
+                    "stopPlayback" -> {
+                        recordings().stop()
+                        result.success(true)
+                    }
+                    "getPlaybackState" -> result.success(recordings().playbackState())
                     "getNotes" -> result.success(noteManager.getAll())
                     "dismissNote" -> {
                         val id = call.argument<String>("id") ?: ""
@@ -503,6 +558,7 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         viewfinder?.destroy()
         viewfinder = null
+        recordingLibrary?.stop()
         chatSession?.cancel()
         textChatSession?.end()
         textChatSession = null
