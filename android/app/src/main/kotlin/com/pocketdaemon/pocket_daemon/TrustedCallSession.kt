@@ -144,7 +144,10 @@ class TrustedCallSession(
                 sessionLog.log(speaker, text)
                 app.emitEvent("transcript", mapOf("speaker" to speaker, "text" to text))
             },
-            onToolCall = { name, _, args -> handleToolCall(name, args) },
+            onToolCall = { name, _, args ->
+                app.emitEvent("agentTool", mapOf("name" to name))
+                handleToolCall(name, args)
+            },
             onReady = {
                 Log.i(TAG, "${voiceConfig.provider} voice ready - greeting ${callerConfig.name}")
                 armInitialInterruptIgnore()

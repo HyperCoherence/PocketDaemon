@@ -11,7 +11,10 @@ import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
+import kotlin.math.log10
+import kotlin.math.sqrt
 
 /**
  * Audio handler for push-to-talk chat mode.
@@ -28,10 +31,35 @@ class ChatAudioHandler(
         private const val CHANNEL_IN = AudioFormat.CHANNEL_IN_MONO
         private const val CHANNEL_OUT = AudioFormat.CHANNEL_OUT_MONO
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
+        private const val LEVEL_INTERVAL_MS = 66L
+
+        /** Loudness of 16-bit little-endian PCM mapped to 0..1 (-55 dBFS to -10 dBFS). */
+        fun loudness(buf: ByteArray, len: Int): Float {
+            val samples = len / 2
+            if (samples == 0) return 0f
+            var sum = 0.0
+            var i = 0
+            while (i + 1 < len) {
+                val s = ((buf[i + 1].toInt() shl 8) or (buf[i].toInt() and 0xFF)).toShort().toDouble()
+                sum += s * s
+                i += 2
+            }
+            val rms = sqrt(sum / samples) / 32768.0
+            if (rms <= 0.0) return 0f
+            return ((20 * log10(rms) + 55) / 45).coerceIn(0.0, 1.0).toFloat()
+        }
     }
+
+    /** Receives mic and agent loudness (0..1, peak since the last call) for the UI's voice visuals. */
+    @Volatile var onLevels: ((mic: Float, agent: Float) -> Unit)? = null
+    @Volatile private var micPeak = 0f
+    @Volatile private var agentPeak = 0f
+    @Volatile private var lastLevelEmit = 0L
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
+    /** While set, captured audio is replaced by silence before anyone sees it. */
+    @Volatile var muted = false
     @Volatile private var capturing = false
     @Volatile private var playing = false
     private var captureThread: Thread? = null
@@ -45,6 +73,20 @@ class ChatAudioHandler(
     private var playbackDevice: AudioDeviceInfo? = null
     private var captureDevice: AudioDeviceInfo? = null
     private var playbackUsage = AudioAttributes.USAGE_VOICE_COMMUNICATION
+
+    private fun meter(buf: ByteArray, len: Int, fromMic: Boolean) {
+        val callback = onLevels ?: return
+        val level = loudness(buf, len)
+        if (fromMic) micPeak = maxOf(micPeak, level) else agentPeak = maxOf(agentPeak, level)
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastLevelEmit < LEVEL_INTERVAL_MS) return
+        lastLevelEmit = now
+        val mic = micPeak
+        val agent = agentPeak
+        micPeak = 0f
+        agentPeak = 0f
+        callback(mic, agent)
+    }
 
     private val playbackLock = Object()
     private val playbackQueue = ArrayDeque<ByteArray>()
@@ -272,7 +314,9 @@ class ChatAudioHandler(
             while (capturing) {
                 val n = rec.read(buf, 0, buf.size)
                 if (n > 0) {
+                    if (muted) buf.fill(0, 0, n)
                     onCapturedAudio(buf.copyOf(n))
+                    meter(buf, n, fromMic = true)
                 } else if (n < 0) {
                     Log.w(TAG, "AudioRecord.read error: $n")
                     break
@@ -298,6 +342,7 @@ class ChatAudioHandler(
                     chunk = playbackQueue.removeFirst()
                 }
                 track.write(chunk, 0, chunk.size)
+                meter(chunk, chunk.size, fromMic = false)
             }
         } catch (e: InterruptedException) {
             // shutdown

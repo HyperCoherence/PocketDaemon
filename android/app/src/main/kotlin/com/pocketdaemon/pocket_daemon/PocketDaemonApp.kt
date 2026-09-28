@@ -814,7 +814,7 @@ class PocketDaemonApp : Application() {
     }
 
     fun emitEvent(type: String, data: Map<String, Any?> = emptyMap()) {
-        Log.i(TAG, "Event: $type $data")
+        if (type != "chatLevel") Log.i(TAG, "Event: $type $data")
         synchronized(eventListeners) {
             for (l in eventListeners) {
                 try { l(type, data) } catch (e: Exception) {

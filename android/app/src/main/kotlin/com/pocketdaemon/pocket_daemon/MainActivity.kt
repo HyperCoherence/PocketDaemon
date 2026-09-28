@@ -225,6 +225,10 @@ class MainActivity : FlutterActivity() {
                         chatSession = null
                         result.success(mapOf("status" to "ended"))
                     }
+                    "setMuted" -> {
+                        chatSession?.setMuted(call.argument<Boolean>("muted") == true)
+                        result.success(null)
+                    }
                     "cancelChat" -> {
                         chatSession?.cancel()
                         chatSession = null

@@ -57,6 +57,8 @@ class GeminiVoiceSessionClient(
     // end of the agent's turn instead of turnComplete, which can precede more audio or tool follow-ups.
     @Volatile private var statusDriven = false
     @Volatile private var turnCompleteFired = false
+    /** Grounding metadata repeats across a turn's messages; only a new search is reported to the UI. */
+    private var lastGroundingQueries: List<String> = emptyList()
     @Volatile private var turnFallback: ScheduledFuture<*>? = null
     private val turnScheduler = Executors.newSingleThreadScheduledExecutor { r ->
         Thread(r, "gemini-live-turn").apply { isDaemon = true }
@@ -302,6 +304,10 @@ class GeminiVoiceSessionClient(
                     if (queries != null && queries.length() > 0) {
                         val qs = (0 until queries.length()).map { queries.getString(it) }
                         Log.i(TAG, "Grounding searches: $qs")
+                        if (qs != lastGroundingQueries) {
+                            lastGroundingQueries = qs
+                            PocketDaemonApp.instance?.emitEvent("agentTool", mapOf("name" to AgentToolRegistry.GOOGLE_SEARCH))
+                        }
                     }
                 }
 

@@ -292,7 +292,10 @@ class ChatSession(
                 sessionLog?.log(speaker, text)
                 app.emitEvent("chatTranscript", mapOf("speaker" to speaker, "text" to text))
             },
-            onToolCall = { name, _, args -> handleToolCall(name, args) },
+            onToolCall = { name, _, args ->
+                app.emitEvent("agentTool", mapOf("name" to name))
+                handleToolCall(name, args)
+            },
             onReady = {
                 Log.i(TAG, "${voiceConfig.provider} voice ready for chat (googleSearch=$wantSearch)")
                 if (resumeHandle != null) {
@@ -369,15 +372,33 @@ class ChatSession(
             }
         )
 
-        if (audioHandler == null) {
-            audioHandler = ChatAudioHandler(context) { capturedPcm ->
-                gemini?.sendAudio(capturedPcm)
-                recorder?.writeCaptureAudio(capturedPcm)
-            }
-        }
+        if (audioHandler == null) audioHandler = newAudioHandler()
 
         gemini?.connect()
         audioHandler?.startCapture()
+    }
+
+    /**
+     * Mutes the owner's mic for this session. The stream keeps running on silence
+     * so the live session stays healthy and the recording keeps its timeline.
+     */
+    @Volatile private var muted = false
+
+    fun setMuted(on: Boolean) {
+        muted = on
+        audioHandler?.muted = on
+        Log.i(TAG, if (on) "Mic muted" else "Mic unmuted")
+    }
+
+    private fun newAudioHandler() = ChatAudioHandler(context) { capturedPcm ->
+        gemini?.sendAudio(capturedPcm)
+        recorder?.writeCaptureAudio(capturedPcm)
+    }.also {
+        it.muted = muted
+        // Drives the voice screen's orb and its speaking state.
+        it.onLevels = { mic, agent ->
+            app.emitEvent("chatLevel", mapOf("mic" to mic.toDouble(), "agent" to agent.toDouble()))
+        }
     }
 
     fun stopTalk() {
@@ -534,10 +555,7 @@ class ChatSession(
         outboundHangUp = null
         app.outboundBridge = null
 
-        audioHandler = ChatAudioHandler(context) { capturedPcm ->
-            gemini?.sendAudio(capturedPcm)
-            recorder?.writeCaptureAudio(capturedPcm)
-        }
+        audioHandler = newAudioHandler()
         gemini?.onAgentAudio = { pcm ->
             audioHandler?.enqueuePlayback(pcm)
             recorder?.writePlaybackAudio(pcm, ChatAudioHandler.PLAYBACK_RATE)
