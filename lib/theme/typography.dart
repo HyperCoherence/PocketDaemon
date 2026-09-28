@@ -85,7 +85,7 @@ abstract final class PremiumTypography {
   );
 
   static const labelSmall = TextStyle(
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: FontWeight.w500,
     letterSpacing: 0.5,
     height: 1.3,

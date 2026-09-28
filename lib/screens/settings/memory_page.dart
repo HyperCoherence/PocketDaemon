@@ -141,7 +141,7 @@ class _MemoryPageState extends State<MemoryPage> {
                               const Text(
                                 'Extract facts & summaries when a session ends',
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: PremiumTokens.textMuted,
                                 ),
                               ),
@@ -165,7 +165,7 @@ class _MemoryPageState extends State<MemoryPage> {
                         const Text(
                           'Process all unprocessed session logs',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 12,
                             color: PremiumTokens.textMuted,
                           ),
                         ),
@@ -224,7 +224,7 @@ class _MemoryPageState extends State<MemoryPage> {
                           Text(
                             _progressFile,
                             style: const TextStyle(
-                              fontSize: 10,
+                              fontSize: 11,
                               color: PremiumTokens.textMuted,
                             ),
                             overflow: TextOverflow.ellipsis,

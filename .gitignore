@@ -57,3 +57,6 @@ pocket_daemon_prefs.xml
 config.json
 *.env
 *.env.*
+
+# UI previews written by test/ui_preview_test.dart --update-goldens
+/test/goldens/

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import '../agent_activity.dart';
 import '../models.dart';
 import '../theme/tokens.dart';
 import '../widgets/typing_dot.dart';
@@ -11,6 +12,9 @@ class ChatPage extends StatefulWidget {
   final List<ChatMessage> messages;
   final bool active;
   final bool waiting;
+
+  /// Tool the agent is running while [waiting], shown in the typing bubble.
+  final String? activeTool;
   final void Function(
     String text, {
     String? imageBase64,
@@ -26,6 +30,7 @@ class ChatPage extends StatefulWidget {
     required this.messages,
     required this.active,
     required this.waiting,
+    this.activeTool,
     required this.onSend,
     required this.onStartSession,
     required this.onEndSession,
@@ -251,7 +256,7 @@ class _ChatPageState extends State<ChatPage> {
                     'offline',
                     style: TextStyle(
                       color: PremiumTokens.textMuted,
-                      fontSize: 11,
+                      fontSize: 12,
                     ),
                   ),
                 ),
@@ -373,7 +378,7 @@ class _ChatPageState extends State<ChatPage> {
                             child: Text(
                               msg.sender == 'user' ? 'You' : 'Agent',
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 color: isUser
                                     ? PremiumTokens.accentPrimary.withAlpha(150)
@@ -385,7 +390,7 @@ class _ChatPageState extends State<ChatPage> {
                           SelectableText(
                             msg.text,
                             style: TextStyle(
-                              fontSize: 14,
+                              fontSize: 15,
                               color: msg.isHistory
                                   ? PremiumTokens.textTertiary
                                   : PremiumTokens.textSecondary,
@@ -396,7 +401,7 @@ class _ChatPageState extends State<ChatPage> {
                         Text(
                           time,
                           style: const TextStyle(
-                            fontSize: 10,
+                            fontSize: 11,
                             color: PremiumTokens.textMuted,
                           ),
                         ),
@@ -436,15 +441,29 @@ class _ChatPageState extends State<ChatPage> {
               ),
               border: Border.all(color: PremiumTokens.borderGlass, width: 0.5),
             ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TypingDot(delay: 0, color: PremiumTokens.accentPrimary),
-                SizedBox(width: 4),
-                TypingDot(delay: 150, color: PremiumTokens.accentPrimary),
-                SizedBox(width: 4),
-                TypingDot(delay: 300, color: PremiumTokens.accentPrimary),
-              ],
+            child: AnimatedSize(
+              duration: PremiumTokens.durationNormal,
+              curve: PremiumTokens.easeOut,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const TypingDot(delay: 0, color: PremiumTokens.phaseThinking),
+                  const SizedBox(width: 4),
+                  const TypingDot(
+                    delay: 150,
+                    color: PremiumTokens.phaseThinking,
+                  ),
+                  const SizedBox(width: 4),
+                  const TypingDot(
+                    delay: 300,
+                    color: PremiumTokens.phaseThinking,
+                  ),
+                  if (widget.activeTool != null) ...[
+                    const SizedBox(width: 10),
+                    _ToolBadge(info: ToolInfo.of(widget.activeTool!)),
+                  ],
+                ],
+              ),
             ),
           ),
         ],
@@ -530,7 +549,7 @@ class _ChatPageState extends State<ChatPage> {
                           textInputAction: TextInputAction.send,
                           onSubmitted: (_) => _handleSend(),
                           style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 15,
                             color: PremiumTokens.textPrimary,
                           ),
                           decoration: InputDecoration(
@@ -607,6 +626,39 @@ class _ChatPageState extends State<ChatPage> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ToolBadge extends StatelessWidget {
+  const _ToolBadge({required this.info});
+
+  final ToolInfo info;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(7, 3, 9, 3),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: info.color.withValues(alpha: 0.14),
+        border: Border.all(color: info.color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(info.icon, size: 13, color: info.color),
+          const SizedBox(width: 5),
+          Text(
+            info.label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color.lerp(info.color, Colors.white, 0.4),
+            ),
+          ),
+        ],
       ),
     );
   }

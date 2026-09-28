@@ -125,14 +125,14 @@ class _TrustedContactsPageState extends State<TrustedContactsPage> {
                                 Text(
                                   ct['relation']!,
                                   style: const TextStyle(
-                                    fontSize: 11,
+                                    fontSize: 12,
                                     color: PremiumTokens.textTertiary,
                                   ),
                                 ),
                               Text(
                                 ct['number'] ?? '',
                                 style: const TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: PremiumTokens.textMuted,
                                   fontFamily: 'monospace',
                                 ),

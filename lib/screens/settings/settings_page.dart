@@ -68,7 +68,7 @@ class SettingsPage extends StatelessWidget {
                     child: Text(
                       'v$kAppVersion',
                       style: const TextStyle(
-                        fontSize: 10,
+                        fontSize: 11,
                         color: PremiumTokens.textMuted,
                         fontWeight: FontWeight.w500,
                       ),

@@ -174,7 +174,7 @@ class _HistoryPageState extends State<HistoryPage> {
                 child: Text(
                   '${widget.log.length}',
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     color: PremiumTokens.textMuted,
                     fontWeight: FontWeight.w500,
                   ),
@@ -227,7 +227,7 @@ class _HistoryPageState extends State<HistoryPage> {
                             entry.time,
                             style: const TextStyle(
                               fontFamily: 'monospace',
-                              fontSize: 11,
+                              fontSize: 12,
                               color: PremiumTokens.textMuted,
                             ),
                           ),
@@ -237,7 +237,7 @@ class _HistoryPageState extends State<HistoryPage> {
                               entry.message,
                               style: TextStyle(
                                 fontFamily: 'monospace',
-                                fontSize: 11,
+                                fontSize: 12,
                                 color: _logEntryColor(entry.message),
                               ),
                             ),

@@ -348,7 +348,7 @@ class _RecordingDetailPageState extends State<RecordingDetailPage> {
               Text(
                 _fmt(value.round()),
                 style: const TextStyle(
-                  fontSize: 11,
+                  fontSize: 12,
                   fontFamily: 'monospace',
                   color: PremiumTokens.textMuted,
                 ),
@@ -356,7 +356,7 @@ class _RecordingDetailPageState extends State<RecordingDetailPage> {
               Text(
                 _fmt(_durationMs),
                 style: const TextStyle(
-                  fontSize: 11,
+                  fontSize: 12,
                   fontFamily: 'monospace',
                   color: PremiumTokens.textMuted,
                 ),
@@ -449,7 +449,7 @@ class _RecordingDetailPageState extends State<RecordingDetailPage> {
           'Transcribed with ${t.model.isNotEmpty ? t.model : 'Gemini'}'
           '${t.mode == 'verbatim' ? ' · speaker labels' : ''}'
           '${t.createdAt.isNotEmpty ? ' · ${t.createdAt}' : ''}',
-          style: const TextStyle(fontSize: 11, color: PremiumTokens.textMuted),
+          style: const TextStyle(fontSize: 12, color: PremiumTokens.textMuted),
         ),
       );
       children.add(const SizedBox(height: 12));
@@ -580,7 +580,7 @@ class _RecordingDetailPageState extends State<RecordingDetailPage> {
                         _fmt((s.startSec! * 1000).round()),
                     ].join(' · '),
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 11,
                       fontWeight: FontWeight.w600,
                       color: color.withAlpha(200),
                     ),

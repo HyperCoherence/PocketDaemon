@@ -133,7 +133,7 @@ class _RecordingLibraryPageState extends State<RecordingLibraryPage> {
               '${_recordings.length} recording${_recordings.length == 1 ? '' : 's'} in /sdcard/PocketDaemon/recordings/',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                fontSize: 11,
+                fontSize: 12,
                 color: PremiumTokens.textMuted,
               ),
             ),
@@ -228,7 +228,7 @@ class _RecordingCard extends StatelessWidget {
                               Text(
                                 r.timeLabel,
                                 style: const TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: PremiumTokens.textMuted,
                                 ),
                               ),
@@ -240,35 +240,35 @@ class _RecordingCard extends StatelessWidget {
                               Text(
                                 r.displayType,
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: r.accent.withAlpha(180),
                                 ),
                               ),
                               const Text(
                                 ' · ',
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: PremiumTokens.textMuted,
                                 ),
                               ),
                               Text(
                                 r.durationLabel,
                                 style: const TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: PremiumTokens.textMuted,
                                 ),
                               ),
                               const Text(
                                 ' · ',
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: PremiumTokens.textMuted,
                                 ),
                               ),
                               Text(
                                 r.sizeLabel,
                                 style: const TextStyle(
-                                  fontSize: 11,
+                                  fontSize: 12,
                                   color: PremiumTokens.textMuted,
                                 ),
                               ),

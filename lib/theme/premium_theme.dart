@@ -77,6 +77,67 @@ ThemeData premiumTheme() {
     ),
     bottomSheetTheme: const BottomSheetThemeData(
       backgroundColor: PremiumTokens.surfaceSolid,
+      showDragHandle: true,
+      dragHandleColor: PremiumTokens.borderGlassTop,
+    ),
+    splashFactory: InkSparkle.splashFactory,
+    listTileTheme: const ListTileThemeData(
+      iconColor: PremiumTokens.accentPrimary,
+      titleTextStyle: TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w500,
+        color: PremiumTokens.textPrimary,
+      ),
+      subtitleTextStyle: TextStyle(
+        fontSize: 13,
+        height: 1.35,
+        color: PremiumTokens.textTertiary,
+      ),
+      minVerticalPadding: 10,
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(64, 50),
+        shape: const StadiumBorder(),
+        backgroundColor: PremiumTokens.accentPrimary,
+        foregroundColor: const Color(0xFF0B0F1A),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(64, 50),
+        shape: const StadiumBorder(),
+        foregroundColor: PremiumTokens.accentPrimaryHover,
+        side: const BorderSide(color: PremiumTokens.borderGlass),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: PremiumTokens.accentPrimaryHover,
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: const Color(0xF2141B2D),
+      contentTextStyle: const TextStyle(
+        fontSize: 14,
+        color: PremiumTokens.textPrimary,
+      ),
+      actionTextColor: PremiumTokens.accentPrimaryHover,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(PremiumTokens.radiusLg),
+        side: const BorderSide(color: PremiumTokens.borderGlass),
+      ),
+    ),
+    dividerTheme: const DividerThemeData(
+      color: PremiumTokens.border,
+      thickness: 0.5,
+    ),
+    progressIndicatorTheme: const ProgressIndicatorThemeData(
+      color: PremiumTokens.accentPrimary,
     ),
     extensions: const [AppColors.dark],
   );

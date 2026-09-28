@@ -207,7 +207,7 @@ class _ScheduledTasksPageState extends State<ScheduledTasksPage> {
                     Text(
                       _formatFireTime(nextFire),
                       style: const TextStyle(
-                        fontSize: 11,
+                        fontSize: 12,
                         color: PremiumTokens.textMuted,
                       ),
                     ),
@@ -215,14 +215,14 @@ class _ScheduledTasksPageState extends State<ScheduledTasksPage> {
                       const Text(
                         ' · ',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: PremiumTokens.textMuted,
                         ),
                       ),
                       Text(
                         _formatInterval(interval),
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: PremiumTokens.accentSecondary,
                         ),
                       ),
@@ -231,14 +231,14 @@ class _ScheduledTasksPageState extends State<ScheduledTasksPage> {
                       const Text(
                         ' · ',
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: PremiumTokens.textMuted,
                         ),
                       ),
                       Text(
                         createdBy,
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: PremiumTokens.textMuted,
                         ),
                       ),

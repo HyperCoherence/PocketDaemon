@@ -35,17 +35,15 @@ class GlassCard extends StatelessWidget {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0x14FFFFFF), // 8%
+                Color(0x1FFFFFFF), // 12%
+                Color(0x0DFFFFFF), // 5%
                 Color(0x05FFFFFF), // 2%
               ],
+              stops: [0.0, 0.08, 1.0],
             ),
             borderRadius: radius,
-            border: const Border(
-              top: BorderSide(color: PremiumTokens.borderGlassTop, width: 0.5),
-              left: BorderSide(color: PremiumTokens.borderGlass, width: 0.5),
-              right: BorderSide(color: PremiumTokens.borderGlass, width: 0.5),
-              bottom: BorderSide(color: PremiumTokens.borderGlass, width: 0.5),
-            ),
+            // Rounded borders must be one colour; the top sheen comes from the gradient.
+            border: Border.all(color: PremiumTokens.borderGlass, width: 0.5),
             boxShadow: [
               const BoxShadow(
                 offset: Offset(0, 8),

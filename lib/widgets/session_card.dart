@@ -91,7 +91,7 @@ class _SessionCardState extends State<SessionCard> {
                                   Text(
                                     s.timeLabel,
                                     style: const TextStyle(
-                                      fontSize: 11,
+                                      fontSize: 12,
                                       color: PremiumTokens.textMuted,
                                     ),
                                   ),
@@ -103,7 +103,7 @@ class _SessionCardState extends State<SessionCard> {
                                   Text(
                                     s.displayType,
                                     style: TextStyle(
-                                      fontSize: 11,
+                                      fontSize: 12,
                                       color: s.accent.withAlpha(180),
                                     ),
                                   ),
@@ -111,14 +111,14 @@ class _SessionCardState extends State<SessionCard> {
                                     const Text(
                                       ' · ',
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 12,
                                         color: PremiumTokens.textMuted,
                                       ),
                                     ),
                                     Text(
                                       s.durationLabel,
                                       style: const TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 12,
                                         color: PremiumTokens.textMuted,
                                       ),
                                     ),
@@ -127,14 +127,14 @@ class _SessionCardState extends State<SessionCard> {
                                     const Text(
                                       ' · ',
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 12,
                                         color: PremiumTokens.textMuted,
                                       ),
                                     ),
                                     Text(
                                       '${s.transcript.length} messages',
                                       style: const TextStyle(
-                                        fontSize: 11,
+                                        fontSize: 12,
                                         color: PremiumTokens.textMuted,
                                       ),
                                     ),
@@ -239,7 +239,7 @@ class _SessionCardState extends State<SessionCard> {
           Text(
             'Tool: $text',
             style: const TextStyle(
-              fontSize: 10,
+              fontSize: 11,
               color: PremiumTokens.textMuted,
               fontStyle: FontStyle.italic,
             ),
@@ -256,7 +256,7 @@ class _SessionCardState extends State<SessionCard> {
           child: Text(
             time,
             style: const TextStyle(
-              fontSize: 10,
+              fontSize: 11,
               fontFamily: 'monospace',
               color: PremiumTokens.textMuted,
             ),

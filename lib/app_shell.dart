@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'agent_activity.dart';
 import 'models.dart';
 import 'recording_events.dart';
 import 'theme/tokens.dart';
@@ -36,13 +37,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   ChatState _chatState = ChatState.idle;
   ChatMode _chatMode = ChatMode.conversation;
+  bool _muted = false;
 
   final List<TranscriptLine> _transcript = [];
+  final _activity = AgentActivity();
   List<SessionSummary> _sessions = [];
 
   final List<ChatMessage> _chatMessages = [];
   bool _textChatActive = false;
   bool _textChatWaiting = false;
+  String? _textChatTool;
   StreamSubscription? _eventSub;
 
   @override
@@ -56,6 +60,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     _eventSub?.cancel();
+    _activity.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -215,6 +220,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       RecordingEvents.push(event.map((k, v) => MapEntry(k.toString(), v)));
       return;
     }
+    // High-rate voice telemetry goes straight to the orb, not through setState.
+    if (type == 'chatLevel') {
+      _activity.onLevels(
+        (event['mic'] as num?)?.toDouble() ?? 0,
+        (event['agent'] as num?)?.toDouble() ?? 0,
+      );
+      return;
+    }
 
     setState(() {
       switch (type) {
@@ -253,6 +266,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           final text = event['text']?.toString() ?? '';
           if (_transcript.isNotEmpty &&
               _transcript.last.speaker == speaker &&
+              speaker != 'tool' &&
               _transcript.last.imagePath == null) {
             _transcript.last.text += ' $text';
           } else {
@@ -260,6 +274,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             if (_transcript.length > 50) _transcript.removeAt(0);
           }
           _addLog('$speaker: $text');
+        case 'agentTool':
+          final name = event['name']?.toString() ?? '';
+          if (name.isNotEmpty) {
+            _activity.onTool(name);
+            if (_callStatus.isNotEmpty || _chatState != ChatState.idle) {
+              _transcript.add(TranscriptLine('tool', name));
+              if (_transcript.length > 50) _transcript.removeAt(0);
+            }
+            _addLog('Tool: $name');
+          }
         case 'agentToggled':
           _agentEnabled = event['enabled'] == true;
         case 'error':
@@ -307,6 +331,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           }
         case 'chatEnded':
           _chatState = ChatState.idle;
+          _muted = false;
+          _activity.reset();
           _setKeepScreenOn(false);
           _transcript.clear();
           final chatErr = event['error']?.toString();
@@ -321,6 +347,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           final text = event['text']?.toString() ?? '';
           if (_transcript.isNotEmpty &&
               _transcript.last.speaker == speaker &&
+              speaker != 'tool' &&
               _transcript.last.imagePath == null) {
             _transcript.last.text += ' $text';
           } else {
@@ -342,6 +369,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           _addLog('Text chat: ready');
         case 'textChatResponse':
           _textChatWaiting = false;
+          _textChatTool = null;
           final agentText = event['text']?.toString() ?? '';
           if (agentText.isNotEmpty) {
             _chatMessages.add(ChatMessage('agent', agentText));
@@ -351,10 +379,12 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           );
         case 'textChatThinking':
           final tool = event['tool']?.toString() ?? '';
+          if (tool.isNotEmpty) _textChatTool = tool;
           _addLog('Text chat: using $tool');
         case 'textChatEnded':
           _textChatActive = false;
           _textChatWaiting = false;
+          _textChatTool = null;
           _addLog('Text chat: ended');
           _loadSessions();
         case 'outboundCallDialing':
@@ -401,6 +431,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _transcript.clear();
     setState(() {
       _chatState = ChatState.connecting;
+      _muted = false;
       _textChatActive = false;
       _textChatWaiting = false;
     });
@@ -417,8 +448,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     HapticFeedback.mediumImpact();
     await _control.invokeMethod('endConversation');
     _setKeepScreenOn(false);
+    _activity.reset();
     setState(() {
       _chatState = ChatState.idle;
+      _muted = false;
       _transcript.clear();
     });
   }
@@ -426,10 +459,23 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   Future<void> _cancelChat() async {
     await _control.invokeMethod('cancelChat');
     _setKeepScreenOn(false);
+    _activity.reset();
     setState(() {
       _chatState = ChatState.idle;
+      _muted = false;
       _transcript.clear();
     });
+  }
+
+  Future<void> _setMuted(bool muted) async {
+    HapticFeedback.mediumImpact();
+    setState(() => _muted = muted);
+    try {
+      await _control.invokeMethod('setMuted', {'muted': muted});
+    } catch (e) {
+      _addLog('Mute failed: $e');
+      if (mounted) setState(() => _muted = !muted);
+    }
   }
 
   Future<void> _takeOverCall() async {
@@ -463,6 +509,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     setState(() {
       _chatMessages.add(ChatMessage('user', text.trim(), imagePath: imagePath));
       _textChatWaiting = true;
+      _textChatTool = null;
     });
     final args = <String, dynamic>{'text': text.trim()};
     if (imageBase64 != null) {
@@ -526,8 +573,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                 duration: PremiumTokens.durationSlow,
                 switchInCurve: PremiumTokens.easeSpring,
                 switchOutCurve: PremiumTokens.easeOut,
-                transitionBuilder: (child, anim) =>
-                    FadeTransition(opacity: anim, child: child),
+                transitionBuilder: (child, anim) => FadeTransition(
+                  opacity: anim,
+                  child: ScaleTransition(
+                    scale: Tween(begin: 0.985, end: 1.0).animate(anim),
+                    child: child,
+                  ),
+                ),
                 child: KeyedSubtree(
                   key: ValueKey(_tab),
                   child: [
@@ -540,6 +592,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       chatState: _chatState,
                       chatMode: _chatMode,
                       transcript: _transcript,
+                      activity: _activity,
+                      muted: _muted,
+                      onToggleMute: () => _setMuted(!_muted),
                       agentName: _agentName,
                       onToggleAgent: _toggleAgent,
                       onStartChat: _startChat,
@@ -556,6 +611,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       messages: _chatMessages,
                       active: _textChatActive,
                       waiting: _textChatWaiting,
+                      activeTool: _textChatTool,
                       onSend: _sendTextMessage,
                       onStartSession: _startTextChat,
                       onEndSession: _endTextChat,

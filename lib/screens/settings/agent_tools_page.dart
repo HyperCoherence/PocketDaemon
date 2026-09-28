@@ -182,7 +182,7 @@ class _AgentToolsPageState extends State<AgentToolsPage> {
                 Text(
                   toolDescriptions[tool] ?? '',
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     color: PremiumTokens.textMuted,
                   ),
                 ),

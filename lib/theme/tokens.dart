@@ -65,11 +65,20 @@ abstract final class PremiumTokens {
   static const error = Color(0xFFF87171);
   static const errorBg = Color(0x1FF87171);
 
-  // ── Agent state colors (from agent-presence/types.ts STATE_RGB) ──
-  static const stateIdle = Color(0xFF38BDF8);
-  static const stateListening = Color(0xFF60A5FA);
-  static const stateThinking = Color(0xFFA78BFA);
-  static const stateSpeaking = Color(0xFF818CF8);
+  // ── Agent phase colors: one hue per thing the agent is doing ──
+  static const phaseOffline = Color(0xFF64748B); // slate-500
+  static const phaseStandby = Color(0xFF38BDF8); // sky-400
+  static const phaseConnecting = Color(0xFFBAE6FD); // sky-200
+  static const phaseListening = Color(0xFF34F5A1); // mint green
+  static const phaseThinking = Color(0xFFB16CFF); // violet
+  static const phaseSpeaking = Color(0xFF3BC9FF); // electric cyan
+  static const phaseCall = Color(0xFFFFB020); // amber
+  static const phaseMuted = Color(0xFF94A3B8); // slate-400
+
+  static const stateIdle = phaseStandby;
+  static const stateListening = phaseListening;
+  static const stateThinking = phaseThinking;
+  static const stateSpeaking = phaseSpeaking;
 
   // ── Borders ──
   static const border = Color(0x0FFFFFFF); // 6%
